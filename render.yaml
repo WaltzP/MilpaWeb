@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: milpagrow-web
+    runtime: static
+    buildCommand: python3 scripts/preparar_render.py
+    staticPublishPath: build
+    envVars:
+      - key: MILPAGROW_APK_URL
+        sync: false
+      - key: SKIP_INSTALL_DEPS
+        value: "true"
+    headers:
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
