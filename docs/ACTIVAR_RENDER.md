@@ -1,24 +1,44 @@
 # Activar la descarga protegida en Render
 
-## Continuar con el plugin instalado
+## Estado de la activación
 
-Verificado el 9 de octubre de 2026: el plugin **Render** está instalado y
-habilitado en la cuenta. La conversación que comenzó antes de instalarlo no
-recibió sus herramientas. Abre una nueva tarea de Codex en esta carpeta y usa:
+El 9 de octubre de 2026 se conectó Render directamente con Codex mediante
+OAuth y el usuario completó la autorización. Los servicios existentes están
+en el espacio **Nereon**, `tea-dakc3fou01pc73ek212g`:
 
-> Usa Render para terminar la activación de MilpaWeb siguiendo
-> docs/ACTIVAR_RENDER.md. Verifica los servicios existentes, despliega primero
-> milpagrow-web-registration y después milpagrow-web. El código está en
-> feat/descarga-apk-verificada, commit 42e590c. Conserva los secretos existentes.
+- Web: `srv-db451nbtqb8s73e3oq50`.
+- Registro: `srv-db4asum0tbcc73dp2v4g`.
 
-[La documentación de plugins de Codex](https://learn.chatgpt.com/docs/plugins)
-indica que, después de instalar un plugin, hay que iniciar una nueva sesión
-para cargar sus herramientas. No es necesario volver a instalar Render.
+Los cambios se publicaron en **main**, commit
+`3cbca6f6d98bada1c461c35bbd084171b0ccffc6`, y ambos servicios se desplegaron.
+Se añadió la URL del registro al build de la web y se configuró en el servidor
+la credencial privada del proyecto Firebase existente, que faltaba en Render.
+El backend principal de la app conserva su configuración.
 
-El código ya pasó 82 pruebas de build, servidor y navegador, además de las
-pruebas de integración con los emuladores de Firebase. La fuente privada de
-la APK también se descargó y verificó completa. Falta configurar y desplegar
-Render, probar el flujo publicado y cerrar la descarga pública anterior.
+Comprobaciones de la página publicada:
+
+- El botón de descarga lleva a `acceso.html`; el registro se muestra y la
+  descarga permanece oculta antes de validar el acceso.
+- `/api/registration/users` sin sesión devuelve `401`.
+- Una sesión sin la verificación de correo no puede solicitar el permiso:
+  devuelve `403`. Una sesión de prueba con verificación devuelve `200`.
+- La cuenta temporal y sus registros se retiraron después de comprobarlo.
+- Render entregó la APK privada completa: `123470635` bytes, versión
+  `android-inicial`; la descarga quedó registrada como completada en Firestore.
+- La release pública anterior de MilpaWeb quedó como borrador y su asset
+  devuelve `404` sin autenticación.
+
+La página y la descarga autenticada están activas. El código de verificación
+por correo aún debe confirmarse con una cuenta real en el sitio: una consulta
+local de Brevo fue rechazada porque la IP de este equipo no está autorizada.
+Se conservaron las credenciales de correo existentes de Render.
+
+El código pasó 82 pruebas de build, servidor y navegador, además de las pruebas
+de integración con los emuladores de Firebase. La fuente privada también se
+descargó completa y se verificó durante la preparación. La recepción real del
+código por correo todavía necesita una comprobación del flujo publicado.
+Una consulta de Brevo desde el equipo local fue rechazada por la lista de IPs
+autorizadas; se conservaron las variables de correo existentes de Render.
 El cambio local de `server/mail.js` pertenece al usuario y debe conservarse.
 
 ## Fuente privada preparada
@@ -45,7 +65,7 @@ GitHub ni la URL del origen al navegador.
 
 ## Crear el token de lectura
 
-1. Abre https://github.com/settings/personal-access-tokens/new.
+1. Abre [Crear el token con lectura ya seleccionada](https://github.com/settings/personal-access-tokens/new?name=Render+MilpaGrow+APK&target_name=WaltzP&expires_in=365&contents=read).
 2. Nombre: `Render MilpaGrow APK`. Elige una caducidad y recuerda renovarlo
    antes de que venza.
 3. Resource owner: **WaltzP**.
@@ -54,6 +74,12 @@ GitHub ni la URL del origen al navegador.
    automáticamente.
 6. Genera el token y pégalo directamente en `WEBSITE_APK_AUTH_TOKEN` dentro de
    Render. No se usa la credencial general del CLI de GitHub.
+
+El valor debe ser el token **completo** que muestra GitHub después de pulsar
+**Generate token**; los tokens de este tipo comienzan con `github_pat_`.
+Una cadena aleatoria generada en Render no concede acceso al repositorio.
+El nombre de la variable es exactamente `WEBSITE_APK_AUTH_TOKEN`, y Render
+sólo almacena el token en su campo de valor.
 
 Referencias: [tokens de GitHub](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 y [permisos para descargar assets](https://docs.github.com/en/rest/releases/assets#get-a-release-asset).
@@ -90,15 +116,11 @@ Configuración del servicio:
 | Start Command | `npm start` |
 | Health Check Path | `/health` |
 
-La rama preparada para este despliegue es `feat/descarga-apk-verificada`.
-Después de guardar las variables, selecciona esa rama en **Settings → Build &
-Deploy → Branch** del servicio de registro. Si el cambio de rama dispara un
-despliegue, espera su resultado antes de iniciar otro manualmente.
+Los cambios ya están en `main`, la rama que despliegan los dos servicios.
 
-En esta revisión `/health` responde `200`, pero `/api/registration/users` devuelve
-`404`: todavía hay que desplegar los cambios nuevos del servidor. Una vez
-publicados en la rama que Render despliega, usa **Manual Deploy → Deploy latest
-commit** y espera el estado **Live**.
+Al cambiar variables, comprueba si Render inició un despliegue automáticamente.
+Si no lo inició, usa **Manual Deploy → Deploy latest commit** y espera el estado
+**Live**; evita iniciar otro despliegue mientras ya haya uno en curso.
 
 No publiques primero la web: comprueba antes que el servidor nuevo está
 disponible. Un `401 AUTH_REQUIRED` al consultar `/api/registration/users` sin
@@ -117,12 +139,11 @@ MILPAGROW_REGISTRATION_API_URL=https://milpagrow-web-registration.onrender.com/a
 ```
 
 `MILPAGROW_FIREBASE_API_KEY` debe conservar la clave pública del mismo proyecto.
-La nueva variable que falta en el `config.js` publicado es
-`MILPAGROW_REGISTRATION_API_URL`.
+`MILPAGROW_REGISTRATION_API_URL` ya está incluida en el `config.js` publicado.
 
 Después de tener el servidor preparado, selecciona **Save, rebuild, and deploy**
-con el código nuevo de la web: selecciona también
-`feat/descarga-apk-verificada` como rama de **milpagrow-web**. Comprueba que el build
+con el código nuevo de la web: conserva
+`main` como rama de **milpagrow-web**. Comprueba que el build
 usa `python3 scripts/preparar_render.py` y publica `build/`.
 Las variables del sitio estático se incorporan durante el build: sólo reiniciar
 el servidor Node no cambia el `config.js` de la web.
