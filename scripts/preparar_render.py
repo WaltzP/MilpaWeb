@@ -1,48 +1,57 @@
-"""Prepara la página pública con un enlace externo para descargar la APK."""
+"""Prepara la landing con su configuración pública; la versión llega desde la API."""
 
 import os
-from html import escape
+import json
 from pathlib import Path
 import shutil
 import sys
 from urllib.parse import urlsplit
 
 
-def preparar_sitio():
-    apk_url = os.environ.get("MILPAGROW_APK_URL", "").strip()
-    if not apk_url:
-        sys.exit("Configura MILPAGROW_APK_URL con el enlace público HTTPS de MilpaGrow.apk.")
-
+def configuracion_publica(environ):
+    api_url = environ.get("MILPAGROW_API_URL", "").strip().rstrip("/")
     try:
-        enlace = urlsplit(apk_url)
+        enlace = urlsplit(api_url)
         puerto = enlace.port
     except ValueError:
-        sys.exit("MILPAGROW_APK_URL no es una URL válida.")
-
+        raise ValueError("MILPAGROW_API_URL no es una URL válida.")
+    local = enlace.scheme == "http" and enlace.hostname in {"localhost", "127.0.0.1"}
     if (
-        enlace.scheme != "https"
+        not api_url
+        or (enlace.scheme != "https" and not local)
         or not enlace.hostname
         or enlace.username is not None
         or enlace.password is not None
-        or any(caracter.isspace() for caracter in apk_url)
+        or enlace.query or enlace.fragment
+        or not enlace.path.endswith("/api")
+        or any(caracter.isspace() for caracter in api_url)
         or (puerto is not None and not 0 < puerto <= 65535)
     ):
-        sys.exit("MILPAGROW_APK_URL debe ser un enlace público HTTPS, sin credenciales.")
+        raise ValueError("MILPAGROW_API_URL debe terminar en /api y usar HTTPS (HTTP sólo en localhost).")
+    config = {
+        "apiUrl": api_url,
+        "firebaseApiKey": environ.get("MILPAGROW_FIREBASE_API_KEY", "").strip(),
+        "firebaseProjectId": environ.get("MILPAGROW_FIREBASE_PROJECT_ID", "").strip(),
+    }
+    if not config["firebaseApiKey"] or not config["firebaseProjectId"]:
+        raise ValueError("Configura MILPAGROW_FIREBASE_API_KEY y MILPAGROW_FIREBASE_PROJECT_ID del mismo proyecto que la API.")
+    return config
 
+
+def preparar_sitio():
+    try:
+        config = configuracion_publica(os.environ)
+    except ValueError as error:
+        sys.exit(str(error))
     proyecto = Path(__file__).resolve().parents[1]
     origen = proyecto / "dist"
     destino = proyecto / "build"
-    pagina = (origen / "index.html").read_text(encoding="utf-8")
-    descarga_local = 'href="downloads/MilpaGrow.apk" download="MilpaGrow.apk"'
-    if pagina.count(descarga_local) != 1:
-        sys.exit("No se encontró el enlace de descarga esperado en dist/index.html.")
-
-    pagina = pagina.replace(descarga_local, f'href="{escape(apk_url, quote=True)}"')
     if destino.exists():
         shutil.rmtree(destino)
     shutil.copytree(origen, destino, ignore=shutil.ignore_patterns("*.apk", "_headers"))
-    (destino / "index.html").write_text(pagina, encoding="utf-8")
-    print("Sitio preparado en build/. La APK se descargará desde el enlace configurado.")
+    serialized = json.dumps(config, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
+    (destino / "config.js").write_text(f"window.MILPAGROW_CONFIG = Object.freeze({serialized});\n", encoding="utf-8")
+    print("Sitio preparado en build/. La versión pública se consultará desde la API.")
 
 
 if __name__ == "__main__":

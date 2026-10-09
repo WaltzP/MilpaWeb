@@ -1,0 +1,2 @@
+# Preserve standard git format-patch context and signature formatting.
+integration/milpagrow-sprint2.patch -whitespace

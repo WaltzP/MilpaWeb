@@ -182,5 +182,6 @@ if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: re
 }
 
 document.querySelector('.download-link').addEventListener('click', () => {
+  if (document.querySelector('.download-link').getAttribute('aria-disabled') === 'true') return;
   document.querySelector('#download-status').textContent = 'Tu navegador abrirá el enlace de descarga. Cuando termine, abre MilpaGrow.apk desde las descargas de tu Android.';
 });
