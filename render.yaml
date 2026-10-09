@@ -45,9 +45,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: FIREBASE_PROJECT_ID
-        sync: false
+        value: nereon-milpagrow
       - key: MILPAGROW_FIREBASE_PROJECT_ID
-        sync: false
+        value: nereon-milpagrow
       - key: FIREBASE_SERVICE_ACCOUNT_JSON
         sync: false
       - key: BREVO_API_KEY

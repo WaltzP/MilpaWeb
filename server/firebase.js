@@ -4,9 +4,9 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 export function firebaseServices(env = process.env) {
   const projectId = env.FIREBASE_PROJECT_ID?.trim();
-  if (!projectId || projectId !== env.MILPAGROW_FIREBASE_PROJECT_ID?.trim()) {
-    throw new Error('FIREBASE_PROJECT_ID y MILPAGROW_FIREBASE_PROJECT_ID deben ser el mismo proyecto de MilpaGrow.');
-  }
+  const appProjectId = env.MILPAGROW_FIREBASE_PROJECT_ID?.trim();
+  if (!projectId || !appProjectId) throw new Error('Configura FIREBASE_PROJECT_ID y MILPAGROW_FIREBASE_PROJECT_ID con nereon-milpagrow, el proyecto Firebase que usa MilpaGrow.');
+  if (projectId !== appProjectId) throw new Error(`Firebase Admin apunta a "${projectId}" y MilpaGrow a "${appProjectId}". Configura ambas variables con el mismo proyecto Firebase: nereon-milpagrow.`);
   let account;
   if (env.FIREBASE_SERVICE_ACCOUNT_JSON) account = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
   else if (env.FIREBASE_SERVICE_ACCOUNT_BASE64) account = JSON.parse(Buffer.from(env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8'));

@@ -44,7 +44,7 @@ dedicado al registro y comprobación de acceso. No reemplaza el backend de la ap
 
 | Variables privadas del servicio Node | Valor |
 | --- | --- |
-| `FIREBASE_PROJECT_ID`, `MILPAGROW_FIREBASE_PROJECT_ID` | Ambos deben ser el proyecto de la app |
+| `FIREBASE_PROJECT_ID`, `MILPAGROW_FIREBASE_PROJECT_ID` | Ambas variables valen `nereon-milpagrow`, el proyecto de Firebase de la app |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` o `FIREBASE_SERVICE_ACCOUNT_BASE64` | Credencial Admin del mismo proyecto, sólo en Node |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Alternativa local: ruta privada a la credencial existente |
 | `BREVO_API_KEY`, `BREVO_FROM_EMAIL`, `BREVO_FROM_NAME` | Servicio y remitente ya usados por MilpaGrow |
@@ -108,7 +108,9 @@ usan respuestas simuladas o el proyecto `demo-milpagrow`.
    `render.yaml` ya incluye
    `WEBSITE_ALLOWED_ORIGINS=https://milpagrow-web.onrender.com`. Si el servicio
    se creó manualmente, añadir esa variable en **Environment** y volver a
-   desplegar; sólo corresponde al servicio Node de registro.
+   desplegar; sólo corresponde al servicio Node de registro. Configura también
+   `FIREBASE_PROJECT_ID` y `MILPAGROW_FIREBASE_PROJECT_ID` con el valor
+   `nereon-milpagrow`. El Blueprint rellena ambos automáticamente.
 3. Si Brevo restringe IPs, permitir la salida del nuevo servicio Node según la
    configuración del proveedor. Comprobar el remitente existente.
 4. En el sitio estático **milpagrow-web**, configurar las cuatro variables
