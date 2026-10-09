@@ -74,7 +74,15 @@ npm start --prefix server
 ```
 
 El script no sobrescribe `.env` existentes. También se pueden completar los
-dos `.env.example` manualmente. En otra terminal construir la web:
+dos `.env.example` manualmente.
+
+El servidor carga `server/.env` por ruta absoluta: se puede ejecutar con
+`npm start --prefix server`, con `node server/index.js` desde la raíz o con
+`node index.js` desde `server/`. Las variables configuradas en Render tienen
+prioridad sobre ese archivo. `WEBSITE_ALLOWED_ORIGINS` admite una barra final
+y normaliza cada dirección al origen que envía el navegador.
+
+En otra terminal construir la web:
 
 ```bash
 set -a
@@ -97,6 +105,10 @@ usan respuestas simuladas o el proyecto `demo-milpagrow`.
 2. Copiar al nuevo servicio, dentro de Render, la configuración privada de
    Firebase y Brevo usada por la app. No es necesario editar ni reiniciar
    MilpaGrow. Configurar el origen exacto de la web y comprobar `/health`.
+   `render.yaml` ya incluye
+   `WEBSITE_ALLOWED_ORIGINS=https://milpagrow-web.onrender.com`. Si el servicio
+   se creó manualmente, añadir esa variable en **Environment** y volver a
+   desplegar; sólo corresponde al servicio Node de registro.
 3. Si Brevo restringe IPs, permitir la salida del nuevo servicio Node según la
    configuración del proveedor. Comprobar el remitente existente.
 4. En el sitio estático **milpagrow-web**, configurar las cuatro variables
@@ -123,7 +135,7 @@ privado. No se cambia el archivo, su release ni su nombre.
 npm test
 ```
 
-Pasan 4 pruebas de configuración, 14 del servicio Node y 44 del navegador
+Pasan 4 pruebas del build, 18 del servicio Node y 44 del navegador
 (móvil y escritorio). Se prueban registro, cuenta existente, código erróneo,
 reenvío, recuperación, cancelaciones, errores de red, descarga, almacenamiento,
 temas y las funciones anteriores de demo y administración.

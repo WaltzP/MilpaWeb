@@ -59,6 +59,6 @@ services:
       - key: WEBSITE_REGISTRATION_SECRET
         generateValue: true
       - key: WEBSITE_ALLOWED_ORIGINS
-        sync: false
+        value: https://milpagrow-web.onrender.com
       - key: TRUST_PROXY_HOPS
         value: "1"
