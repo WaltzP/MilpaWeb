@@ -64,6 +64,12 @@ test('Firebase real emulado: cuentas compartidas en ambos sentidos con el backen
     const custom = (await service.confirm(data.challenge, codes.at(-1).code)).customToken;
     const webToken = await exchange(custom), account = await service.session(webToken);
     assert.equal(account.uid, before.uid); assert.equal((await auth.getUser(before.uid)).emailVerified, true);
+    const registered = await db.collection('websiteRegisteredUsers').doc(Buffer.from(before.uid).toString('base64url')).get();
+    assert.equal(registered.data().status, 'verified'); assert.equal(registered.data().source, 'website');
+    const { grant } = await service.grant(webToken);
+    const event = await service.beginDownload(grant, { sizeBytes: 1234, version: '1.2.0' });
+    await service.finishDownload(event, true);
+    assert.equal((await registered.ref.get()).data().completedDownloadCount, 1);
     assert.equal((await db.collection('users').doc(before.uid).get()).exists, false);
     assert.equal((await guard(webToken)).allowed, true);
     // Mismo método de login que llama AuthApiService de Flutter.
@@ -91,6 +97,9 @@ test('Firebase real emulado: cuentas compartidas en ambos sentidos con el backen
     assert.equal((await service.session(idToken)).uid, created.localId); assert.equal((await guard(idToken)).allowed, true);
     assert.deepEqual((await db.collection('users').doc(created.localId).get()).data(), profile);
     assert.equal((await auth.getUser(created.localId)).customClaims.milpagrowAdmin, true);
+    const page = await service.registeredUsers(idToken);
+    assert.ok(page.items.some(item => item.uid === created.localId && item.source === 'app'));
+    assert.ok(page.items.some(item => item.source === 'website' && item.completedDownloadCount === 1));
   });
   const otherCollections = await db.listCollections();
   assert.ok(!otherCollections.some(collection => collection.id === 'farms'));

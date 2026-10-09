@@ -9,13 +9,15 @@ test('registro y confirmación crean una cuenta compartida sin crear perfil ni f
   const f = fixture(), challenge = await f.service.start(f.values);
   assert.equal(challenge.email, 'ana@example.test'); assert.equal(f.users.size, 1);
   const uid = [...f.users.keys()][0]; assert.equal(f.users.get(uid).emailVerified, false);
+  assert.equal(f.registered(uid).status, 'pending');
   assert.equal(f.codes.length, 1); assert.match(f.codes[0].code, /^\d{6}$/);
   const stored = JSON.stringify([...f.documents]);
   assert.ok(!stored.includes(f.codes[0].code)); assert.ok(!stored.includes(f.values.password)); assert.ok(!stored.includes(challenge.challenge));
   const result = JSON.parse((await f.service.confirm(challenge.challenge, f.codes[0].code)).customToken);
   assert.deepEqual(result, { uid, claims: { email_login_verified: true, email_login_address: 'ana@example.test' } });
   assert.equal(f.users.get(uid).emailVerified, true); assert.deepEqual(f.users.get(uid).customClaims, {});
-  assert.ok([...f.documents.keys()].every(key => key.startsWith('websiteRegistrationChallenges/')));
+  assert.ok([...f.documents.keys()].every(key => key.startsWith('websiteRegistrationChallenges/') || key.startsWith('websiteRegisteredUsers/')));
+  assert.equal(f.registered(uid).status, 'verified'); assert.equal(f.registered(uid).source, 'website');
   await assert.rejects(f.service.confirm(challenge.challenge, f.codes[0].code), errorCode('INVALID_REGISTRATION_CODE'));
 });
 test('la cuenta de la app no se duplica ni se sobrescribe', async () => {
@@ -84,7 +86,7 @@ test('un registro interrumpido se recupera con contraseña y código del backend
   const f = fixture(), user = await f.auth.createUser({ email: 'pending@example.test', emailVerified: false });
   f.tokens.set('verified-mail-session', { uid: user.uid, email: user.email, email_login_verified: true, email_login_address: user.email });
   await f.service.session('verified-mail-session'); assert.equal(f.users.get(user.uid).emailVerified, true);
-  assert.deepEqual(f.updates, [{ uid: user.uid, data: { emailVerified: true } }]); assert.equal(f.documents.size, 0);
+  assert.deepEqual(f.updates, [{ uid: user.uid, data: { emailVerified: true } }]); assert.equal(f.registered(user.uid).status, 'verified');
 });
 test('la limitación de registro persiste en Firestore y no guarda la IP', async () => {
   const f = fixture();

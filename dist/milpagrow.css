@@ -2724,7 +2724,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px so
 .session-bar,.admin-toolbar,.action-row { display:flex; flex-wrap:wrap; gap:18px; align-items:center; justify-content:space-between }
 .session-bar { padding:16px 24px; margin:32px 0 }
 .session-bar p { overflow-wrap:anywhere }
-.admin-tabs { margin-bottom:32px }
+.admin-tabs { margin-bottom:32px; flex-wrap:wrap }
+.admin-tabs button { flex:1 1 120px; min-width:0; overflow-wrap:anywhere }
 .admin-toolbar { margin-bottom:16px }
 .admin-toolbar label { min-width:180px }
 .admin-toolbar h2 { margin-right:auto }

@@ -77,6 +77,32 @@ function successFirebase(route, data) { return route.fulfill({ status: 200, cont
 async function login(page) {
   await page.goto('/admin.html'); await page.locator('#login-form [name=email]').fill('admin@example.test'); await page.locator('#login-form [name=password]').fill('DemoPassword123'); await page.locator('#login-form [type=submit]').click(); await page.locator('#code-form [name=code]').fill('123456'); await page.locator('#code-form [type=submit]').click();
 }
+test('el administrador consulta usuarios, verificación y descargas sin guardar datos en el navegador', async ({ page }, info) => {
+  await authApi(page);
+  await page.route('**/api/website/admin/demo-requests?**', route => success(route, { items: [], nextCursor: null }));
+  await page.route('**/api/website/admin/releases', route => success(route, { items: [], nextCursor: null }));
+  await page.route('**/api/registration/users*', route => {
+    expect(route.request().headers().authorization).toContain('Bearer header.');
+    return success(route, { items: [{ uid: 'user', email: 'ana@example.test', source: 'website', status: 'verified', createdAt: '2026-10-09T12:00:00Z', lastDownloadAt: '2026-10-09T12:01:00Z', downloadCount: 2, completedDownloadCount: 1 }], nextCursor: null });
+  });
+  await login(page); await expect(page.locator('#admin-panel')).toBeVisible(); await page.locator('#tab-users').click();
+  await expect(page.locator('#users-list')).toContainText('ana@example.test'); await expect(page.locator('#users-list')).toContainText('Correo verificado');
+  await expect(page.locator('#users-list')).toContainText('2 descargas iniciadas · 1 entregadas');
+  await page.screenshot({ path: `/tmp/milpaweb-users-${info.project.name}.png`, fullPage: true });
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `Panel de usuarios a ${width}px`).toBeTruthy();
+  }
+  expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]); expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual([]);
+  await page.locator('#logout').click(); await expect(page.locator('#admin-panel')).toBeHidden(); await expect(page.locator('#users-list')).toBeEmpty();
+});
+test('la revocación del permiso de administrador oculta los usuarios y cierra la sesión', async ({ page }) => {
+  await authApi(page);
+  await page.route('**/api/website/admin/demo-requests?**', route => success(route, { items: [], nextCursor: null }));
+  await page.route('**/api/website/admin/releases', route => success(route, { items: [], nextCursor: null }));
+  await page.route('**/api/registration/users*', route => failure(route, 'Esta cuenta no tiene permiso administrativo.', 'ADMIN_REQUIRED', 403));
+  await login(page); await expect(page.locator('#admin-panel')).toBeVisible(); await page.locator('#tab-users').click();
+  await expect(page.locator('#login-status')).toContainText('no tiene permiso'); await expect(page.locator('#admin-panel')).toBeHidden(); await expect(page.locator('#users-list')).toBeEmpty();
+});
 test('cuenta sin permiso: acceso denegado y panel privado oculto', async ({ page }) => {
   await authApi(page, true); await login(page); await expect(page.locator('#login-status')).toContainText('Acceso denegado'); await expect(page.locator('#admin-panel')).toBeHidden();
 });

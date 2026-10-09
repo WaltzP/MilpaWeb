@@ -62,3 +62,9 @@ services:
         value: https://milpagrow-web.onrender.com
       - key: TRUST_PROXY_HOPS
         value: "1"
+      - key: WEBSITE_APK_URL
+        sync: false
+      - key: WEBSITE_APK_AUTH_TOKEN
+        sync: false
+      - key: WEBSITE_APK_VERSION
+        sync: false

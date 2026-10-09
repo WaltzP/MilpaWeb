@@ -1,5 +1,5 @@
 import { request, ApiError, status } from './website-api.js';
-import { registrationRequest } from './registration-api.js';
+import { registrationRequest, registrationDownloadUrl } from './registration-api.js';
 import { signIn, signOut, token } from './firebase-session.js';
 
 const $ = selector => document.querySelector(selector);
@@ -32,6 +32,7 @@ function reset(view = 'login') {
     $(`#${button.dataset.password}`).type = 'password'; button.textContent = 'Mostrar';
     button.setAttribute('aria-label', button.dataset.password.includes('confirm') ? 'Mostrar confirmación de contraseña' : 'Mostrar contraseña');
   }
+  $('#verified-download').disabled = false;
   $('#access-email').textContent = ''; status(feedback, ''); show(view);
 }
 for (const [id, view] of [['choose-login', 'login'], ['choose-register', 'register'], ['access-restart', 'login'], ['recovery-back', 'login'], ['access-logout', 'login']]) {
@@ -152,7 +153,15 @@ $('#access-recovery').addEventListener('submit', event => {
   });
 });
 $('#verified-download').addEventListener('click', () => {
-  status(feedback, 'Tu navegador abrirá el enlace de descarga. Cuando termine, abre MilpaGrow.apk desde las descargas de tu Android.');
+  if (busy || !sessionEstablished) return;
+  const button = $('#verified-download'); button.disabled = true;
+  const run = generation;
+  operation($('#access-ready'), 'Autorizando tu descarga…', async current => {
+    const data = await registrationRequest('/download-grant', { body: {}, token: await token() });
+    if (current !== generation) return;
+    window.location.assign(registrationDownloadUrl(data.grant));
+    status(feedback, 'Descarga autorizada. Cuando termine, abre MilpaGrow.apk desde las descargas de tu Android.');
+  }).finally(() => { if (run === generation) button.disabled = false; });
 });
 window.addEventListener('pagehide', () => { generation++; clearInterval(timer); pendingCustomToken = undefined; signOut(); });
 window.addEventListener('pageshow', event => { if (event.persisted) reset(); });

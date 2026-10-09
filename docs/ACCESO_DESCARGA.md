@@ -1,9 +1,13 @@
 # Cuentas compartidas antes de descargar MilpaGrow
 
+Para activar la fuente privada ya preparada en GitHub y los servicios existentes,
+consulta [la guía con las URLs y pasos de Render](ACTIVAR_RENDER.md).
+
 El botón de descarga de la landing abre `acceso.html`. El usuario elige
 **Iniciar sesión** o **Crear cuenta**, confirma el código enviado a su correo
-y obtiene el enlace al mismo APK de GitHub Releases. La landing, la demo, el
-panel administrativo y la publicación del instalador conservan sus servicios.
+y solicita un permiso temporal para recibir la APK desde el servicio Node.
+La landing, la demo, el panel administrativo y la publicación del instalador
+conservan sus servicios.
 
 Todos los cambios están en MilpaWeb. El repositorio de MilpaGrow se usa como
 referencia y durante las pruebas de compatibilidad; no se cambia ni despliega.
@@ -25,6 +29,68 @@ referencia y durante las pruebas de compatibilidad; no se cambia ni despliega.
 - El registro web **no escribe `users`, fincas, roles ni datos de perfil**.
   El `FarmGate` de la app encontrará el perfil pendiente y mostrará su flujo
   habitual. Una cuenta existente conserva sus datos y permisos.
+- La colección privada `websiteRegisteredUsers` registra cada cuenta por su
+  UID de Firebase, correo, origen (`website` o `app`), estado pendiente o
+  verificado, fechas y contadores de descargas. Se crea al registrar desde la
+  web y se actualiza al confirmar el código. Una cuenta existente se incorpora
+  después de verificar su sesión. No se duplica en Firebase Authentication.
+
+## Descarga y control de usuarios
+
+El botón final no contiene un enlace público al instalador. Envía
+`POST /api/registration/download-grant` con el ID token de Firebase. El servidor
+comprueba firma, revocación, cuenta y verificación del código, y crea un permiso
+aleatorio de 256 bits que vence en 120 segundos. Guarda sólo su hash en
+`websiteDownloadGrants`. No incluye correos ni tokens de Firebase en la URL.
+
+El navegador solicita `GET /api/registration/download/:grant`. Se comprueba de
+nuevo que la cuenta no esté desactivada y que su correo y revocación coincidan;
+una transacción consume el permiso una sola vez y registra la descarga en
+`websiteDownloads`. El servidor transmite `MilpaGrow.apk` como adjunto, sin
+redireccionar al origen del archivo ni cargar toda la APK en memoria. Un permiso
+vencido, inventado, utilizado, o una sesión sin código no entregan el archivo.
+`HEAD` no consume el permiso. No se admiten reanudaciones con el mismo permiso;
+el usuario puede solicitar otra descarga desde su sesión verificada.
+
+El historial distingue `started`, `completed` y `failed`, y conserva UID, correo,
+versión, tamaño y fechas. El contador de entregadas se incrementa cuando termina
+la transferencia en el servidor; no confirma instalación ni uso. Si un proceso
+se termina durante la transferencia, el evento puede permanecer en `started`.
+Hay un máximo de 10 permisos por cuenta por hora, además del límite por IP.
+
+En `admin.html`, **Usuarios y descargas** consulta
+`GET /api/registration/users`, con páginas de 50 cuentas. Exige la sesión con
+código y el permiso actual `milpagrowAdmin: true` en Firebase Admin. Revocar ese
+permiso bloquea inmediatamente la consulta, aunque el token conserve claims
+antiguos. La lista muestra correo, origen, verificación y contadores. El detalle
+de cada transferencia permanece en Firestore; no se publica una API de usuarios
+sin autorización.
+
+## Origen privado de la APK
+
+Configura **una** fuente en el servicio Node:
+
+- `WEBSITE_APK_PATH`: ruta a `MilpaGrow.apk` fuera de `build/` y `dist/`.
+- `WEBSITE_APK_URL`: URL HTTPS del archivo en un almacenamiento privado.
+  Si exige un token Bearer, configúralo en `WEBSITE_APK_AUTH_TOKEN`.
+
+Por ejemplo, en Render se puede usar el endpoint
+`https://api.github.com/repos/OWNER/PRIVATE_REPO/releases/assets/ASSET_ID` de
+un repositorio **privado**, y un token con permiso de lectura de Contents
+limitado a ese repositorio. El servicio pide `application/octet-stream` y sigue
+la redirección internamente; ninguna credencial se entrega al navegador.
+[Contrato de descarga de assets de GitHub](https://docs.github.com/en/rest/releases/assets#get-a-release-asset).
+
+`WEBSITE_APK_VERSION` identifica la versión en el historial. Al actualizar la
+APK, cambia el archivo o la URL y esa versión. Sin fuente o ante un fallo del
+origen se devuelve `503 APK_UNAVAILABLE`; no hay enlace público de reserva.
+El panel anterior de instaladores continúa usando la API de publicación de la
+app; publicar allí no actualiza automáticamente este origen privado.
+
+Antes de exigir registro en todas las vías, migra también las releases públicas
+que contienen APK. Mantener una APK pública en GitHub permite saltarse la web.
+No se han eliminado releases ni cambiado la visibilidad de repositorios en
+esta sesión. Los archivos ya descargados pueden compartirse.
 
 El registro de la app sigue verificando con un **enlace**. El registro web
 ofrece un **código**, como se pidió, sin alterar ese comportamiento de Flutter.
@@ -51,16 +117,21 @@ dedicado al registro y comprobación de acceso. No reemplaza el backend de la ap
 | `WEBSITE_REGISTRATION_SECRET` | Secreto aleatorio de al menos 32 caracteres; Render lo genera |
 | `WEBSITE_ALLOWED_ORIGINS` | Origen exacto del sitio, por ejemplo `https://milpagrow-web.onrender.com`; varios separados por comas |
 | `TRUST_PROXY_HOPS` | `1` en Render; `0` en local |
+| `WEBSITE_APK_PATH` o `WEBSITE_APK_URL` | Fuente privada de la APK; sólo una de las dos |
+| `WEBSITE_APK_AUTH_TOKEN` | Token Bearer privado para el origen HTTPS, si lo exige |
+| `WEBSITE_APK_VERSION` | Versión que se registra al entregar el archivo |
 
 Las credenciales y los correos no se publican en el build. La sesión queda en
 memoria; localStorage conserva únicamente la preferencia de tema. No se guardan
 contraseñas, códigos ni tokens en localStorage o sessionStorage.
 
-El servicio usa las nuevas colecciones privadas `websiteRegistrationChallenges`
-y `websiteRegistrationRateLimits` del mismo Firestore. Las reglas actuales de
+El servicio usa las colecciones privadas `websiteRegistrationChallenges`,
+`websiteRegistrationRateLimits`, `websiteRegisteredUsers`, `websiteDownloadGrants`
+y `websiteDownloads` del mismo Firestore. Las reglas actuales de
 MilpaGrow niegan por defecto el acceso del cliente a estas colecciones; Admin
 escribe sin cambiar las reglas de la app. Opcionalmente se puede habilitar TTL
-en `deleteAfter` de ambas colecciones para limpiar registros de límites vencidos.
+en `deleteAfter` de desafíos, límites y permisos para limpiar registros vencidos.
+No habilites TTL en usuarios o historial si deseas conservarlos.
 
 ## Desarrollo local
 
@@ -75,6 +146,8 @@ npm start --prefix server
 
 El script no sobrescribe `.env` existentes. También se pueden completar los
 dos `.env.example` manualmente.
+Para probar la entrega del archivo en local, añade a `server/.env`
+`WEBSITE_APK_PATH=/ruta/privada/MilpaGrow.apk` y `WEBSITE_APK_VERSION`.
 
 El servidor carga `server/.env` por ruta absoluta: se puede ejecutar con
 `npm start --prefix server`, con `node server/index.js` desde la raíz o con
@@ -110,9 +183,15 @@ usan respuestas simuladas o el proyecto `demo-milpagrow`.
    se creó manualmente, añadir esa variable en **Environment** y volver a
    desplegar; sólo corresponde al servicio Node de registro. Configura también
    `FIREBASE_PROJECT_ID` y `MILPAGROW_FIREBASE_PROJECT_ID` con el valor
-   `nereon-milpagrow`. El Blueprint rellena ambos automáticamente.
+   `nereon-milpagrow`. El Blueprint rellena ambos automáticamente. Añade
+   también `BREVO_API_KEY` y `BREVO_FROM_EMAIL`, copiando sus valores privados
+   del servicio Render que ejecuta la API actual de MilpaGrow. No los pongas
+   en el repositorio, `render.yaml` ni en el chat. `BREVO_FROM_NAME` es opcional.
 3. Si Brevo restringe IPs, permitir la salida del nuevo servicio Node según la
-   configuración del proveedor. Comprobar el remitente existente.
+   configuración del proveedor. Comprobar el remitente existente. Configurar
+   el origen privado de la APK descrito arriba y comprobar una descarga
+   autenticada antes de publicar la web; `/health` sólo confirma que el servicio
+   está iniciado, no que el instalador o el correo estén disponibles.
 4. En el sitio estático **milpagrow-web**, configurar las cuatro variables
    públicas. La nueva URL será, normalmente,
    `https://milpagrow-web-registration.onrender.com/api/registration`.
@@ -120,16 +199,18 @@ usan respuestas simuladas o el proyecto `demo-milpagrow`.
    en Render **falla si falta cualquiera de las cuatro variables**, para evitar
    reemplazar la descarga pública existente con un acceso sin configurar.
 6. Comprobar registro, recepción real del correo, login web de una cuenta de la
-   app, descarga del APK y login en la app de la cuenta creada en la web.
+   app, descarga del APK, historial de usuarios en administración y login en
+   la app de la cuenta creada en la web. Después de comprobar la nueva entrega,
+   retirar la distribución pública de APK para impedir la descarga externa.
 
 Estado de esta entrega: implementación y pruebas locales completas. No se ha
 creado el servicio ni publicado esta versión en Render desde esta sesión; falta
 acceso al panel de despliegue. La versión pública permanece intacta. La recepción
 real de correos de registro desde el nuevo servicio debe comprobarse al activarlo.
 
-El APK mantiene su enlace público de GitHub: este cambio exige la cuenta en el
-recorrido del botón de la web, no convierte GitHub Releases en almacenamiento
-privado. No se cambia el archivo, su release ni su nombre.
+Este cambio reemplaza el enlace público de la página por la entrega protegida
+del servicio Node. Su activación requiere configurar la fuente privada. No se
+ha modificado ninguna release pública existente.
 
 ## Verificación
 
@@ -137,10 +218,12 @@ privado. No se cambia el archivo, su release ni su nombre.
 npm test
 ```
 
-Pasan 4 pruebas del build, 18 del servicio Node y 44 del navegador
+Pasan 4 pruebas del build, 26 del servicio Node y 52 del navegador
 (móvil y escritorio). Se prueban registro, cuenta existente, código erróneo,
 reenvío, recuperación, cancelaciones, errores de red, descarga, almacenamiento,
-temas y las funciones anteriores de demo y administración.
+temas y las funciones anteriores de demo y administración. Incluyen permisos
+de descarga de un solo uso, expiración, revocación de cuentas, concurrencia,
+historial, bloqueo sin código y consultas exclusivas de administradores.
 
 La comprobación de compatibilidad importa el backend **original** de la app
 como lectura y usa Firebase Auth y Firestore emulados. El envío Brevo es
