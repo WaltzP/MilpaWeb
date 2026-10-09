@@ -1,5 +1,26 @@
 # Activar la descarga protegida en Render
 
+## Continuar con el plugin instalado
+
+Verificado el 9 de octubre de 2026: el plugin **Render** está instalado y
+habilitado en la cuenta. La conversación que comenzó antes de instalarlo no
+recibió sus herramientas. Abre una nueva tarea de Codex en esta carpeta y usa:
+
+> Usa Render para terminar la activación de MilpaWeb siguiendo
+> docs/ACTIVAR_RENDER.md. Verifica los servicios existentes, despliega primero
+> milpagrow-web-registration y después milpagrow-web. El código está en
+> feat/descarga-apk-verificada, commit 42e590c. Conserva los secretos existentes.
+
+[La documentación de plugins de Codex](https://learn.chatgpt.com/docs/plugins)
+indica que, después de instalar un plugin, hay que iniciar una nueva sesión
+para cargar sus herramientas. No es necesario volver a instalar Render.
+
+El código ya pasó 82 pruebas de build, servidor y navegador, además de las
+pruebas de integración con los emuladores de Firebase. La fuente privada de
+la APK también se descargó y verificó completa. Falta configurar y desplegar
+Render, probar el flujo publicado y cerrar la descarga pública anterior.
+El cambio local de `server/mail.js` pertenece al usuario y debe conservarse.
+
 ## Fuente privada preparada
 
 Repositorio: https://github.com/WaltzP/MilpaGrow-APK (privado).
