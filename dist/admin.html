@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#F5F3EE"><meta name="robots" content="noindex,nofollow">
+  <title>Administración | MilpaGrow</title><link rel="icon" href="assets/icono-milpagrow.png"><link rel="stylesheet" href="milpagrow.css">
+  <script src="config.js"></script><script type="module" src="admin.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#admin-main">Saltar al contenido</a>
+  <header class="site-header"><a class="brand" href="index.html" aria-label="MilpaGrow, inicio"><img src="assets/logo-milpagrow.png" alt="MilpaGrow" width="180" height="52"></a><div class="header-actions"><button class="text-link" id="admin-theme">Tema oscuro</button><a class="text-link" href="index.html">Volver a la página</a></div></header>
+  <main id="admin-main" class="section-shell admin-main">
+    <div class="section-heading"><div><span class="section-label"><span class="status-dot"></span> NEREON / ADMINISTRACIÓN</span><h1>El próximo paso<br>empieza aquí.</h1></div><p>Demostraciones e instaladores<br>de MilpaGrow.</p></div>
+    <section id="login-section" class="clay-card login-card">
+      <h2>Accede a tu equipo.</h2><p>Usa tu cuenta de MilpaGrow y confirma el código enviado a tu correo.</p>
+      <form id="login-form" class="form-card"><label>Correo<input name="email" type="email" autocomplete="username" required maxlength="254"></label><label>Contraseña<input name="password" type="password" autocomplete="current-password" required maxlength="128"></label><button class="button" type="submit">Continuar</button></form>
+      <form id="code-form" class="form-card" hidden><p id="code-description"></p><label>Código de acceso<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></label><div class="action-row"><button class="button" type="submit">Verificar acceso</button><button class="text-link" id="resend-code" type="button">Reenviar código</button><button class="text-link" id="restart-login" type="button">Cambiar cuenta</button></div></form>
+      <p id="login-status" class="form-status" role="status"></p><p class="privacy-note">Tu cuenta debe tener el correo verificado y un permiso administrativo asignado por el servidor.</p>
+      <noscript><p>Activa JavaScript para acceder al panel.</p></noscript>
+    </section>
+    <section id="admin-panel" hidden>
+      <div class="session-bar clay-card"><p id="session-email"></p><button id="logout" class="text-link">Cerrar sesión</button></div>
+      <div class="module-tabs admin-tabs" role="tablist" aria-label="Áreas del panel"><button id="tab-demos" role="tab" aria-selected="true" aria-controls="panel-demos" data-panel="demos">Demostraciones</button><button id="tab-releases" role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-releases" data-panel="releases">Instaladores</button></div>
+      <section id="panel-demos" role="tabpanel" aria-labelledby="tab-demos">
+        <div class="admin-toolbar"><h2>Solicitudes de demostración</h2><label>Filtrar por estado<select id="demo-filter"><option value="">Todos los estados</option><option>pendiente</option><option>contactada</option><option>agendada</option><option>realizada</option><option>cerrada</option></select></label><button id="refresh-demos" class="button button-outline">Actualizar</button></div>
+        <p id="demos-status" class="form-status" role="status"></p><div id="demos-list" class="admin-list"></div><button id="more-demos" class="button button-outline" hidden>Ver más solicitudes</button>
+        <section id="demo-detail" class="clay-card form-card" hidden aria-labelledby="detail-heading"><div class="admin-toolbar"><h3 id="detail-heading">Detalle de la solicitud</h3><button class="text-link" id="close-detail">Cerrar detalle</button></div><dl id="detail-data" class="detail-data"></dl><form id="detail-form"><label>Estado<select name="status"><option>pendiente</option><option>contactada</option><option>agendada</option><option>realizada</option><option>cerrada</option></select></label><label>Notas internas<textarea name="notes" rows="5" maxlength="5000" placeholder="Seguimiento, fecha acordada y próximos pasos."></textarea></label><button class="button" type="submit">Guardar seguimiento</button></form><p id="detail-status" class="form-status" role="status"></p></section>
+      </section>
+      <section id="panel-releases" role="tabpanel" aria-labelledby="tab-releases" hidden>
+        <div class="admin-toolbar"><h2>Instaladores para Android</h2><button id="refresh-releases" class="button button-outline">Actualizar historial</button></div>
+        <form id="release-form" class="clay-card form-card"><h3>Subir una nueva versión</h3><p>Selecciona el APK compilado de MilpaGrow. Al completar la carga, podrás publicarlo y ofrecerlo en la landing.</p><div class="form-grid"><label>Versión<input name="version" required maxlength="50" pattern="[0-9]+\.[0-9]+\.[0-9]+([\-+][a-zA-Z0-9.\-]+)?" placeholder="1.2.0"></label><label>Código de versión<input name="versionCode" type="number" min="1" max="2100000000" step="1" required placeholder="12"></label><label>Android mínimo<input name="minAndroid" required maxlength="20" value="7.0" pattern="[0-9]+(\.[0-9]+){0,2}"></label><label>Archivo APK<input name="apk" type="file" accept=".apk,application/vnd.android.package-archive" required></label></div><label>Novedades<textarea name="notes" rows="4" required minlength="10" maxlength="5000" placeholder="Qué cambió en esta versión."></textarea></label><button class="button" type="submit">Subir instalador</button><div id="upload-progress" hidden><label for="apk-progress">Carga del archivo</label><progress id="apk-progress" max="100" value="0"></progress><p id="upload-status" class="form-status" role="status"></p></div><p id="release-form-status" class="form-status" role="status"></p></form>
+        <div class="section-heading history-heading"><h3>Historial de versiones</h3><p id="current-release"></p></div><p id="releases-status" class="form-status" role="status"></p><div id="releases-list" class="admin-list"></div><button id="more-releases" class="button button-outline" hidden>Ver más versiones</button>
+      </section>
+    </section>
+  </main>
+  <footer class="footer section-shell"><a class="brand" href="index.html"><img src="assets/logo-milpagrow.png" alt="MilpaGrow" width="180" height="52"></a><p>Desarrollado por NEREON · Nicaragua, 2026</p></footer>
+</body>
+</html>

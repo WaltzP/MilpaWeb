@@ -5,7 +5,11 @@ services:
     buildCommand: python3 scripts/preparar_render.py
     staticPublishPath: build
     envVars:
-      - key: MILPAGROW_APK_URL
+      - key: MILPAGROW_API_URL
+        sync: false
+      - key: MILPAGROW_FIREBASE_API_KEY
+        sync: false
+      - key: MILPAGROW_FIREBASE_PROJECT_ID
         sync: false
       - key: SKIP_INSTALL_DEPS
         value: "true"
@@ -16,3 +20,9 @@ services:
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
+      - path: /config.js
+        name: Cache-Control
+        value: no-store
+      - path: /admin.html
+        name: Cache-Control
+        value: no-store

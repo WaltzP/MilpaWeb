@@ -1,0 +1,1133 @@
+From d5edff61ee8960bd6a07fec9d0748a3153363e6b Mon Sep 17 00:00:00 2001
+From: Walter Solorzano <waltzprogramming@gmail.com>
+Date: Thu, 8 Oct 2026 22:00:46 -0600
+Subject: [PATCH] feat(website): persist demos and manage authenticated APK
+ releases
+
+---
+ .env.example                             |   8 +
+ docs/INTEGRACION_MILPAGROW.md            | 333 +++++++++++++++++++++++
+ firestore.indexes.json                   |  11 +
+ server/index.js                          |   6 +
+ server/modules/website/admin.js          |  10 +
+ server/modules/website/apk.js            |  45 +++
+ server/modules/website/demos.js          |  88 ++++++
+ server/modules/website/github.js         |  62 +++++
+ server/modules/website/releases.js       | 111 ++++++++
+ server/modules/website/validation.js     |  37 +++
+ server/modules/website/website.routes.js |  30 ++
+ server/package-lock.json                 |  21 +-
+ server/package.json                      |   3 +-
+ server/scripts/setWebsiteAdmin.js        |  16 ++
+ server/test/website.integration.test.js  | 122 +++++++++
+ server/test/website.test.js              |  47 ++++
+ 16 files changed, 948 insertions(+), 2 deletions(-)
+ create mode 100644 docs/INTEGRACION_MILPAGROW.md
+ create mode 100644 server/modules/website/admin.js
+ create mode 100644 server/modules/website/apk.js
+ create mode 100644 server/modules/website/demos.js
+ create mode 100644 server/modules/website/github.js
+ create mode 100644 server/modules/website/releases.js
+ create mode 100644 server/modules/website/validation.js
+ create mode 100644 server/modules/website/website.routes.js
+ create mode 100644 server/scripts/setWebsiteAdmin.js
+ create mode 100644 server/test/website.integration.test.js
+ create mode 100644 server/test/website.test.js
+
+diff --git a/.env.example b/.env.example
+index bd250dc..2d62cc9 100644
+--- a/.env.example
++++ b/.env.example
+@@ -35,3 +35,11 @@ GEMINI_SCAN_MODEL=gemini-3.5-flash
+ SUPABASE_SERVICE_ROLE_KEY=
+ SCAN_STORAGE_BUCKET=plant-scans
+ CRON_SECRET=REEMPLAZAR_CON_OTROS_32_BYTES_ALEATORIOS
++
++# Landing / panel privado. Sólo en la API; nunca pasan al build de Flutter/web.
++WEBSITE_SPAM_SECRET=REEMPLAZAR_CON_UN_SECRETO_ALEATORIO_DE_32_BYTES
++GITHUB_RELEASE_TOKEN=
++GITHUB_RELEASE_OWNER=WaltzP
++GITHUB_RELEASE_REPO=MilpaWeb
++# Render: 1. Local o conexión directa: 0. Verifica la topología del proxy.
++TRUST_PROXY_HOPS=0
+diff --git a/docs/INTEGRACION_MILPAGROW.md b/docs/INTEGRACION_MILPAGROW.md
+new file mode 100644
+index 0000000..e9b39b2
+--- /dev/null
++++ b/docs/INTEGRACION_MILPAGROW.md
+@@ -0,0 +1,333 @@
++# Integración MilpaWeb ↔ MilpaGrow · Sprint 2
++
++MilpaWeb conserva la landing estática y añade una demo pública y un panel en
++`/admin.html`. MilpaGrow mantiene Express, Firebase Authentication, Firestore y
++el contrato `{ success, data }` / `{ success: false, error: { code, message } }`.
++No se guardan solicitudes, versiones, contraseñas ni tokens en localStorage.
++Sólo se guarda `milpagrow-theme`; la sesión administrativa vive en memoria.
++
++## Estado y alcance
++
++- Implementado en MilpaWeb: CTA de demo, formulario validado, reintentos con
++  idempotencia, consulta de versión, panel con código de correo, solicitudes,
++  filtros, detalles, notas, carga con progreso, publicación e historial.
++- Implementado en la rama del backend preparada junto a esta entrega:
++  `server/modules/website/*`, montaje en `server/index.js`, script de permisos,
++  dependencia `yauzl`, índices y TTL de Firestore y pruebas de integración.
++- **Pendiente en el backend desplegado:** integrar esa rama/patch, instalar las
++  dependencias, desplegar índices/reglas y configurar secretos y GitHub.
++- Pendiente en producción: habilitar al primer administrador, desplegar ambos
++  repositorios y ejecutar el recorrido de aceptación descrito abajo.
++- Las pruebas usan Firebase emulado, un APK real local y respuestas simuladas
++  de GitHub. La prueba real de publicación requiere el token del servidor.
++  No se han enviado datos personales ni publicado releases en producción.
++
++## Configuración centralizada
++
++`scripts/preparar_render.py` genera `build/config.js` a partir de una lista
++cerrada de variables públicas. Todos los módulos usan `website-api.js` para
++resolver la misma URL base. La URL debe incluir `/api`; las rutas de las tablas
++son relativas a ella. HTTPS es obligatorio salvo localhost/127.0.0.1.
++La página consulta la versión al abrirse, al volver a la pestaña y cada cinco
++minutos mientras está visible. Publicar otra APK **no requiere reconstruir**
++MilpaWeb. Cambiar la URL o proyecto de Firebase sí requiere regenerar config.js.
++
++| Variable pública (MilpaWeb) | Uso |
++| --- | --- |
++| `MILPAGROW_API_URL` | Ej.: `http://localhost:3000/api` o `https://api.example.com/api` |
++| `MILPAGROW_FIREBASE_API_KEY` | Clave Web pública del mismo proyecto Firebase que la API |
++| `MILPAGROW_FIREBASE_PROJECT_ID` | Identificador público de ese proyecto |
++
++| Variable privada/configuración del servidor (MilpaGrow) | Uso |
++| --- | --- |
++| `WEBSITE_SPAM_SECRET` | Secreto aleatorio de al menos 32 caracteres: desafíos y hashes antispam |
++| `GITHUB_RELEASE_TOKEN` | Token con Contents: read/write limitado al repositorio de instaladores |
++| `GITHUB_RELEASE_OWNER` | `WaltzP` por defecto |
++| `GITHUB_RELEASE_REPO` | `MilpaWeb` por defecto: conserva el repositorio de distribución actual |
++| `TRUST_PROXY_HOPS` | 0 local/directo; 1 en Render si sólo se accede mediante su proxy |
++| Credenciales Firebase Admin | `FIREBASE_SERVICE_ACCOUNT_BASE64` o JSON o ADC ya soportados por la API |
++| `AUTH_TOKEN_SECRET` | Secreto existente para el código de acceso de MilpaGrow |
++| `BREVO_API_KEY`, `BREVO_FROM_EMAIL`, `BREVO_FROM_NAME` | Envío del código mediante el servicio existente |
++| `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`, `PUBLIC_API_URL` | Configuración ya usada por el backend |
++
++Nunca introducir secretos Admin, GitHub, Brevo o antispam en el build, las
++variables públicas, HTML ni JavaScript. El script sólo exporta las tres claves
++públicas indicadas. `.env.example` contiene exclusivamente valores de ejemplo.
++
++### Desarrollo
++
++1. En MilpaGrow, configurar el `.env` existente y las nuevas variables privadas.
++2. Ejecutar `npm ci --prefix server` y `npm start --prefix server` (Node 22+).
++3. En MilpaWeb, copiar `.env.example` a `.env` y configurar el mismo Firebase:
++
++```bash
++set -a
++source .env
++set +a
++python3 scripts/preparar_render.py
++python3 -m http.server 4173 --bind 127.0.0.1 --directory build
++```
++
++Abrir `http://127.0.0.1:4173` y `/admin.html`. Usar una instancia de desarrollo
++del proyecto para la prueba manual. Las pruebas automáticas tienen su propia
++configuración ficticia y no necesitan credenciales reales.
++
++### Producción en Render
++
++1. Integrar y desplegar primero los cambios de MilpaGrow. Configurar los secretos
++   del servidor y una cuenta de servicio del mismo proyecto que Flutter.
++2. Ejecutar desde MilpaGrow `firebase deploy --only firestore:rules,firestore:indexes
++   --project TU_PROYECTO`. Esperar que el índice de solicitudes esté listo.
++   `websiteDemoDedup` y `websiteDemoLimits` usan TTL en `expiresAt`; los límites
++   funcionan aunque la eliminación por TTL sea diferida.
++3. Repositorio GitHub de instaladores público y token de permisos mínimos.
++   Configurar el repositorio que ya contiene la APK; el navegador nunca lo recibe.
++4. Configurar las tres variables públicas en el servicio estático MilpaWeb.
++   `render.yaml` usa `python3 scripts/preparar_render.py` y publica `build/`.
++5. Configurar/probar CORS para el dominio de MilpaWeb. La API existente permite
++   CORS; los nuevos requests usan `Authorization`, `Idempotency-Key` y `PUT`.
++   Si se restringe CORS, conservar los orígenes de Flutter y de la landing.
++6. Verificar límites y tiempos del proxy: APK hasta 250 MiB; timeout de carga
++   al servidor de 10 minutos, GitHub de 10 minutos y navegador de 15 minutos.
++   La API escribe un temporal con permisos 0600 y lo elimina al terminar.
++7. Habilitar el primer administrador y publicar un instalador desde el panel.
++   Antes de esa publicación, `/website/release` devuelve `null` y la descarga
++   permanece deshabilitada con una explicación visible.
++
++El HTML del panel se sirve públicamente para mostrar el inicio de sesión; los
++datos y cada operación están protegidos en el backend. Recargar o cerrar la
++página borra la sesión en memoria y requiere iniciar sesión otra vez.
++
++## Autenticación existente, reutilizada
++
++El panel usa estos contratos de `server/modules/auth/auth.routes.js` y
++`emailLogin.service.js`, también utilizados por Flutter:
++
++| Método y ruta | Campos | Respuesta `data` | Errores principales |
++| --- | --- | --- | --- |
++| POST `/auth/login` | `{ email, password }` | `{ challenge, email, expiresInSeconds: 600, resendAfterSeconds: 60 }` | 401 `INVALID_CREDENTIALS`; 429 `LOGIN_LIMIT`; 500 `AUTH_CONFIG`; 502 `AUTH_NETWORK` |
++| POST `/auth/login-code/resend` | `{ challenge }` | Igual que login | 400 `INVALID_LOGIN_CODE`; 429 `LOGIN_LIMIT` |
++| POST `/auth/login-code/confirm` | `{ challenge, code }`, código de seis dígitos | `{ customToken }` | 400 `INVALID_LOGIN_CODE`; 429 `LOGIN_LIMIT` |
++
++El custom token se canjea mediante Firebase Authentication REST
++`accounts:signInWithCustomToken` con la clave Web pública. El panel mantiene el
++ID token y el refresh token en memoria y renueva el ID token con Secure Token
++API cuando hace falta. El backend verifica firma, revocación y proyecto mediante
++`verifyFirebaseToken`, exige `email_verified`, `email_login_verified` y que
++`email_login_address` coincida con el correo. No se cambia ni omite ese flujo.
++
++Después se lee el usuario de Firebase Admin y se exige
++`customClaims.milpagrowAdmin === true` **en cada operación administrativa**.
++La retirada del permiso bloquea también tokens emitidos previamente.
++Ningún campo de un request, perfil editable ni localStorage concede permisos.
++
++## Endpoints nuevos
++
++### Públicos, sin cuenta ni Authorization
++
++| Método y ruta | Campos / headers | Respuesta `data` | Errores |
++| --- | --- | --- | --- |
++| GET `/website/release` | Ninguno | Manifest público o `null` | 503 `WEBSITE_CONFIG`; 500 `UNEXPECTED_ERROR` |
++| GET `/website/demo-challenge` | Ninguno | `{ challenge, minWaitMs: 2000 }` | 503 `WEBSITE_CONFIG` |
++| POST `/website/demo-requests` | JSON abajo; header `Idempotency-Key` UUID | HTTP 202 `{ accepted: true }` después de confirmar la transacción | 400 `VALIDATION_ERROR`, `SPAM_REJECTED`, `CHALLENGE_EXPIRED`; 409 `IDEMPOTENCY_CONFLICT`; 429 `DEMO_RATE_LIMIT`, `AUTH_RATE_LIMIT`; 413 `PAYLOAD_TOO_LARGE` |
++
++```json
++{
++  "name": "Ana Productora",
++  "email": "ana@example.com",
++  "phone": "+505 8888 8888",
++  "activity": "mixta",
++  "message": "Me gustaría conocer cómo organizar los registros de mi finca.",
++  "website": "",
++  "challenge": "DESAFIO_RECIBIDO_DEL_SERVIDOR"
++}
++```
++
++Validación compartida con la interfaz: nombre 2–100 caracteres; correo válido
++hasta 254; teléfono opcional hasta 30 y formado por dígitos, espacios, `+` inicial,
++paréntesis, puntos y guiones; actividad `agricola|porcina|mixta|otra`; mensaje
++10–2000. Se recortan espacios y el servidor normaliza el correo a minúsculas.
++Rechaza tipos incorrectos, controles y campos inesperados. JSON máximo 16 KiB.
++
++El campo trampa `website` debe estar vacío. El desafío firmado dura una hora y
++requiere al menos dos segundos. Firestore limita a 10 solicitudes/IP y 3/correo
++por ventana de 15 minutos; los identificadores se protegen con HMAC.
++`TRUST_PROXY_HOPS` debe reflejar el proxy real para separar correctamente IPs.
++Un request idéntico se deduplica durante 24 horas. El mismo UUID también evita
++duplicados de reintentos concurrentes o respuestas perdidas. La interfaz conserva
++el UUID en memoria mientras los campos no cambien y sólo borra los campos al
++recibir confirmación. No devuelve información de solicitudes previas al público.
++Es protección básica; no incluye CAPTCHA ni un servicio de detección de bots.
++
++Respuesta de demo (transacción ya confirmada):
++
++```json
++{ "success": true, "data": { "accepted": true } }
++```
++
++Manifest público:
++
++```json
++{
++  "success": true,
++  "data": {
++    "id": "android-12",
++    "version": "1.2.0",
++    "versionCode": 12,
++    "notes": "Mejoras de registro y seguimiento.",
++    "minAndroid": "7.0",
++    "sizeBytes": 128974848,
++    "sha256": "HASH_SHA256_DEL_APK",
++    "downloadUrl": "https://github.com/WaltzP/MilpaWeb/releases/download/milpagrow-android-12/MilpaGrow.apk",
++    "publishedAt": "2026-10-08T12:00:00Z"
++  }
++}
++```
++
++### Privados: ID token Firebase + verificación existente + permiso administrativo
++
++Todos requieren `Authorization: Bearer ID_TOKEN` y devuelven `Cache-Control:
++no-store`. No se aceptan custom tokens directamente como autorización.
++
++| Método y ruta | Campos / query | Respuesta `data` |
++| --- | --- | --- |
++| GET `/website/admin/session` | Ninguno | `{ uid, email }` |
++| GET `/website/admin/demo-requests` | `status` opcional y `cursor` de página | `{ items: [solicitud], nextCursor }`, páginas de 25 |
++| GET `/website/admin/demo-requests/:id` | ID válido | Una solicitud |
++| PATCH `/website/admin/demo-requests/:id` | `{ status, notes, revision }` | Solicitud actualizada |
++| GET `/website/admin/releases` | `cursor` opcional | `{ items: [version], nextCursor, currentReleaseId, maxBytes: 262144000 }` |
++| POST `/website/admin/releases` | `{ version, versionCode, notes, minAndroid }` | HTTP 201 versión en `draft` |
++| PUT `/website/admin/releases/:id/apk` | Binario real; Content-Type `application/vnd.android.package-archive` o `application/octet-stream` | Versión en `uploaded` tras verificar GitHub |
++| POST `/website/admin/releases/:id/publish` | Sin body | Manifest público; también permite seleccionar una versión ya publicada |
++
++Estados de demo: `pendiente`, `contactada`, `agendada`, `realizada`, `cerrada`.
++Notas hasta 5000 caracteres. `revision` comienza en 0 y aumenta al guardar.
++Un conflicto devuelve 409 `DEMO_CHANGED`; no sobrescribe notas de otro admin.
++Paginación ordena por `createdAt` y documento, ambos descendentes.
++
++```json
++{
++  "success": true,
++  "data": {
++    "id": "ID_DE_SOLICITUD",
++    "name": "Ana Productora",
++    "email": "ana@example.com",
++    "phone": "",
++    "activity": "mixta",
++    "message": "Quiero conocer MilpaGrow para organizar mi finca.",
++    "status": "pendiente",
++    "notes": "",
++    "revision": 0,
++    "createdAt": 1791460800000,
++    "updatedAt": 1791460800000
++  }
++}
++```
++
++Ejemplo de actualización:
++
++```json
++{ "status": "agendada", "notes": "Demo acordada para el viernes.", "revision": 0 }
++```
++
++Ejemplo de registro de instalador:
++
++```json
++{ "version": "1.2.0", "versionCode": 12, "notes": "Mejoras de seguimiento y registro.", "minAndroid": "7.0" }
++```
++
++El código debe ser entero entre 1 y 2100000000 y único; la versión debe seguir
++un formato como `1.2.0`. Novedades 10–5000 caracteres. Android mínimo numérico.
++El operador debe usar los valores reales del build de Flutter (`version` de
++pubspec y Android mínimo). La validación del APK comprueba su estructura ZIP,
++manifiesto Android binario y DEX; no certifica su firma ni extrae esos metadatos.
++
++La carga se transmite a disco, calcula SHA-256, valida el archivo y crea un
++release borrador con tag `milpagrow-android-CODIGO`. Guarda IDs de release y
++asset. Verifica que GitHub confirma estado `uploaded`, tamaño y digest si está
++presente. La landing sigue ofreciendo su versión anterior durante esta fase.
++
++Al publicar, la API comprueba que el repositorio es público, que el asset sigue
++completo y pertenece al release, publica el borrador y **sólo entonces**, mediante
++una transacción de Firestore, actualiza la versión y el manifest público. Conserva
++el historial; seleccionar una versión anterior no vuelve a subir el archivo.
++Si GitHub falla no cambia el manifest. Una respuesta perdida tras publicar se
++puede reintentar; el release ya publicado se reutiliza. Operaciones concurrentes
++en una misma versión tienen una reserva de 20 minutos; una operación interrumpida
++se puede reintentar cuando vence esa reserva desde el historial.
++
++Estados internos: `draft`, `uploading`, `uploaded`, `publishing`, `published`,
++`failed`. Cada registro incluye metadatos, `id`, `tag`, `createdAt`, `updatedAt`,
++`createdBy`; tras cargar incluye `sizeBytes`, `sha256`, `githubReleaseId`,
++`githubAssetId`, `downloadUrl`, `uploadedBy`; tras publicar incluye `publishedAt`
++y `publishedBy`. Reservas usan `leaseUntil`, `previousStatus`; `error` contiene un
++mensaje sanitizado. El manifest público excluye los usuarios y datos internos.
++
++Errores comunes privados: 401 `AUTH_REQUIRED`/`INVALID_TOKEN`; 403
++`EMAIL_NOT_VERIFIED`/`MFA_REQUIRED`/`ADMIN_REQUIRED`; 400 `VALIDATION_ERROR`;
++404 `DEMO_NOT_FOUND`/`RELEASE_NOT_FOUND`; 409 `DEMO_CHANGED`/`VERSION_EXISTS`/
++`RELEASE_BUSY`/`RELEASE_STATE`/`RELEASE_TAG_EXISTS`/`RELEASE_PUBLISHED`/
++`PRIVATE_RELEASE_REPO`/`ASSET_INCOMPLETE`/`ASSET_MISMATCH`; 400 `INVALID_APK`/
++`APK_INCOMPLETE`; 413 `APK_TOO_LARGE`; 415 `APK_CONTENT_TYPE`; 503 `GITHUB_CONFIG`;
++502 `GITHUB_NETWORK`/`GITHUB_ERROR`/`GITHUB_ASSET`/`GITHUB_PUBLISH`;
++500 `UNEXPECTED_ERROR`. JSON mal formado: 400 `INVALID_JSON`.
++
++```json
++{ "success": false, "error": { "code": "ADMIN_REQUIRED", "message": "Acceso denegado. Esta cuenta no tiene permiso administrativo." } }
++```
++
++## Primer administrador
++
++1. Crear la cuenta mediante la app existente y verificar su correo. No hay
++   registro público de administradores en la landing.
++2. Con credenciales **Firebase Admin** del proyecto configuradas en el entorno
++   del servidor, ejecutar desde MilpaGrow:
++
++```bash
++node server/scripts/setWebsiteAdmin.js admin@example.com grant
++```
++
++El script verifica correo y cuenta habilitada, mantiene otros custom claims y
++asigna únicamente `milpagrowAdmin`. No concede la verificación de código.
++3. Abrir `/admin.html`, iniciar sesión y confirmar el código recibido por correo.
++4. Para retirar permiso:
++
++```bash
++node server/scripts/setWebsiteAdmin.js admin@example.com revoke
++```
++
++El script requiere variables de credenciales en su entorno. Si están en `.env`,
++exportarlas con `set -a; source .env; set +a` en una terminal del servidor antes
++de ejecutarlo. No crear un endpoint público que asigne este permiso.
++
++## Comprobación después de desplegar
++
++1. Abrir landing en celular/escritorio, temas claro/oscuro; probar menú, pestañas,
++   ejemplos de Milpi, teclado y movimiento reducido.
++2. Sin cuenta, enviar una demo válida. Confirmar que aparece en Firestore y luego
++   se muestra la confirmación. Simular desconexión: campos intactos, botón activo
++   para reintentar y una sola solicitud en el servidor.
++3. Iniciar sesión con una cuenta verificada **sin** permiso admin y confirmar
++   acceso denegado. Repetir un request privado con ese ID token: HTTP 403.
++   Un token de contraseña sin código de correo debe recibir `MFA_REQUIRED`.
++4. Como administrador, abrir la solicitud, filtrar por estado, recorrer los cinco
++   estados y guardar notas. Recargar, volver a iniciar sesión y verificar que
++   persisten. Probar una lista vacía y una API temporalmente no disponible.
++5. Subir un APK real con sus metadatos. Observar progreso y resultado. Comprobar
++   que aparece como listo para publicar y aún no modifica la descarga pública.
++6. Publicar desde el historial. Abrir GET `/api/website/release` sin token y
++   comprobar versión, fecha, bytes, requisito y enlace. Abrir la landing en una
++   nueva pestaña y descargar ese APK sin iniciar sesión.
++7. Subir un archivo inválido o provocar error de GitHub: la versión anterior
++   permanece. Publicar una segunda versión y seleccionar la anterior; ambas
++   siguen en el historial.
++8. Revocar permiso al admin y comprobar HTTP 403 con su sesión anterior.
++9. Verificar DevTools: ningún token GitHub, secreto Admin ni dato de demo en
++   almacenamiento local/config.js; Firestore directo niega nuevas colecciones.
++
++## Fuentes de los servicios
++
++Los contratos de acceso proceden del código existente de MilpaGrow. El canje
++se ajusta a [Firebase Authentication REST](https://firebase.google.com/docs/reference/rest/auth#section-verify-custom-token),
++el permiso a [Firebase Admin custom claims](https://firebase.google.com/docs/auth/admin/custom-claims)
++y la distribución a [GitHub Releases y assets](https://docs.github.com/en/rest/releases/assets).
+diff --git a/firestore.indexes.json b/firestore.indexes.json
+index 3d47d5b..0c7f0d1 100644
+--- a/firestore.indexes.json
++++ b/firestore.indexes.json
+@@ -1,5 +1,14 @@
+ {
+   "indexes": [
++    {
++      "collectionGroup": "websiteDemoRequests",
++      "queryScope": "COLLECTION",
++      "fields": [
++        { "fieldPath": "status", "order": "ASCENDING" },
++        { "fieldPath": "createdAt", "order": "DESCENDING" },
++        { "fieldPath": "__name__", "order": "DESCENDING" }
++      ]
++    },
+     {
+       "collectionGroup": "farms",
+       "queryScope": "COLLECTION",
+@@ -107,6 +116,8 @@
+     }
+   ],
+   "fieldOverrides": [
++    { "collectionGroup": "websiteDemoDedup", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
++    { "collectionGroup": "websiteDemoLimits", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+     {
+       "collectionGroup": "crops",
+       "fieldPath": "estimatedHarvestDate",
+diff --git a/server/index.js b/server/index.js
+index 57245ec..69736be 100644
+--- a/server/index.js
++++ b/server/index.js
+@@ -35,6 +35,10 @@ const host = "0.0.0.0";
+ 
+ // Permite que la app de Flutter se conecte sin bloqueos de seguridad
+ app.disable('x-powered-by');
++// En Render, configura 1 sólo si la API está detrás de su proxy y no es accesible
++// directamente. Express calcula req.ip sin confiar en encabezados arbitrarios.
++const proxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
++if (Number.isInteger(proxyHops) && proxyHops > 0 && proxyHops <= 2) app.set('trust proxy', proxyHops);
+ app.use(cors());
+ app.use((req, res, next) => {
+   res.set('X-Content-Type-Options', 'nosniff');
+@@ -44,6 +48,8 @@ app.use((req, res, next) => {
+ });
+ // Images go directly to Edge; ordinary JSON never needs a 15 MiB allocation.
+ app.use('/api/auth', createAuthRateLimit(), express.json({ limit: '16kb' }), authRoutes);
++// Antes del parser general: la APK se recibe como stream, nunca como JSON.
++app.use('/api/website', require('./modules/website/website.routes'));
+ app.use(express.json({ limit: '256kb' }));
+ app.use(
+   "/assets/logos",
+diff --git a/server/modules/website/admin.js b/server/modules/website/admin.js
+new file mode 100644
+index 0000000..9f554a1
+--- /dev/null
++++ b/server/modules/website/admin.js
+@@ -0,0 +1,10 @@
++const { getAuth } = require('firebase-admin/auth');
++const { ApiError, asyncHandler } = require('../shared/http');
++const verifyFirebaseToken = require('../../middleware/verifyFirebaseToken');
++// La lectura del usuario evita que un token antiguo conserve un permiso retirado.
++const requireAdmin = asyncHandler(async (req, res, next) => {
++  const account = await getAuth().getUser(req.user.uid);
++  if (account.disabled || account.customClaims?.milpagrowAdmin !== true) throw new ApiError(403, 'ADMIN_REQUIRED', 'Acceso denegado. Esta cuenta no tiene permiso administrativo.');
++  next();
++});
++module.exports = { adminMiddleware: [verifyFirebaseToken, requireAdmin] };
+diff --git a/server/modules/website/apk.js b/server/modules/website/apk.js
+new file mode 100644
+index 0000000..f9370ce
+--- /dev/null
++++ b/server/modules/website/apk.js
+@@ -0,0 +1,45 @@
++const yauzl = require('yauzl');
++const { ApiError } = require('../shared/http');
++// No extrae archivos. Lee sólo el encabezado del manifiesto y un DEX, con límites.
++function validateApk(file) {
++  return new Promise((resolve, reject) => {
++    yauzl.open(file, { lazyEntries: true, validateEntrySizes: true }, (error, zip) => {
++      if (error) return reject(new ApiError(400, 'INVALID_APK', 'El archivo no es un APK válido.'));
++      let count = 0, total = 0, manifest = false, dex = false, ended = false;
++      function fail() {
++        if (ended) return;
++        ended = true; zip.close();
++        reject(new ApiError(400, 'INVALID_APK', 'El archivo debe ser un APK Android con manifiesto y código válidos.'));
++      }
++      zip.on('error', fail);
++      zip.on('entry', entry => {
++        total += entry.uncompressedSize;
++        if (++count > 20000 || total > 1024 * 1024 * 1024 || entry.isEncrypted() || entry.fileName.includes('..') || entry.fileName.startsWith('/')) return fail();
++        const isManifest = entry.fileName === 'AndroidManifest.xml';
++        const isDex = entry.fileName === 'classes.dex';
++        if (!isManifest && !isDex) return zip.readEntry();
++        if (isManifest && (manifest || entry.uncompressedSize > 2 * 1024 * 1024)) return fail();
++        if (isDex && dex) return fail();
++        zip.openReadStream(entry, (error, stream) => {
++          if (error) return fail();
++          let prefix = Buffer.alloc(0);
++          stream.on('error', fail);
++          stream.on('data', chunk => { if (prefix.length < 8) prefix = Buffer.concat([prefix, chunk.subarray(0, 8 - prefix.length)]); });
++          stream.on('end', () => {
++            if (ended) return;
++            if (isManifest) manifest = prefix.length === 8 && prefix.readUInt32LE(0) === 0x00080003;
++            if (isDex) dex = /^dex\n\d{3}\x00$/.test(prefix.toString('latin1'));
++            if (!(isManifest ? manifest : dex)) return fail();
++            zip.readEntry();
++          });
++        });
++      });
++      zip.on('end', () => {
++        if (!manifest || !dex) return fail();
++        if (!ended) { ended = true; resolve(); }
++      });
++      zip.readEntry();
++    });
++  });
++}
++module.exports = { validateApk };
+diff --git a/server/modules/website/demos.js b/server/modules/website/demos.js
+new file mode 100644
+index 0000000..a45f858
+--- /dev/null
++++ b/server/modules/website/demos.js
+@@ -0,0 +1,88 @@
++const crypto = require('node:crypto');
++const { FieldPath } = require('firebase-admin/firestore');
++const { ApiError } = require('../shared/http');
++const validation = require('./validation');
++const WINDOW = 15 * 60 * 1000;
++function createDemos(db, { secret = process.env.WEBSITE_SPAM_SECRET, now = Date.now } = {}) {
++  function sign(value) {
++    if (!db || !secret || secret.length < 32) throw new ApiError(503, 'WEBSITE_CONFIG', 'El servicio de demostraciones todavía no está disponible.');
++    return crypto.createHmac('sha256', secret).update(value).digest('hex');
++  }
++  function challenge() {
++    const payload = `${now()}.${crypto.randomBytes(16).toString('hex')}`;
++    return { challenge: `${payload}.${sign(payload)}`, minWaitMs: 2000 };
++  }
++  function verify(value) {
++    if (typeof value !== 'string' || !/^\d{13}\.[a-f0-9]{32}\.[a-f0-9]{64}$/.test(value)) validation.invalid('Actualiza el formulario e inténtalo de nuevo.');
++    const parts = value.split('.');
++    if (!crypto.timingSafeEqual(Buffer.from(parts[2], 'hex'), Buffer.from(sign(`${parts[0]}.${parts[1]}`), 'hex'))) validation.invalid('Actualiza el formulario e inténtalo de nuevo.');
++    const age = now() - Number(parts[0]);
++    if (age < 2000 || age > 3600000) throw new ApiError(400, 'CHALLENGE_EXPIRED', 'Actualiza el formulario e inténtalo de nuevo.');
++  }
++  async function submit(body, key, ip) {
++    const data = validation.demo(body);
++    if (typeof body.website !== 'string' || body.website !== '') throw new ApiError(400, 'SPAM_REJECTED', 'No fue posible enviar la solicitud.');
++    verify(body.challenge);
++    if (typeof key !== 'string' || !/^[a-f0-9-]{36}$/.test(key)) validation.invalid('Falta el identificador del envío.');
++    const fingerprint = sign(JSON.stringify(data));
++    const ref = db.collection('websiteDemoRequests').doc(sign(`request:${key}`));
++    const duplicate = db.collection('websiteDemoDedup').doc(fingerprint);
++    const bucket = Math.floor(now() / WINDOW);
++    const limits = [
++      { ref: db.collection('websiteDemoLimits').doc(sign(`ip:${ip}:${bucket}`)), max: 10 },
++      { ref: db.collection('websiteDemoLimits').doc(sign(`email:${data.email}:${bucket}`)), max: 3 },
++    ];
++    await db.runTransaction(async tx => {
++      const [existing, similar, ...counters] = await Promise.all([tx.get(ref), tx.get(duplicate), ...limits.map(item => tx.get(item.ref))]);
++      if (existing.exists) {
++        if (existing.data().fingerprint !== fingerprint) throw new ApiError(409, 'IDEMPOTENCY_CONFLICT', 'Los datos del envío cambiaron. Inténtalo de nuevo.');
++        return;
++      }
++      if (similar.exists && similar.data().expiresAt.toMillis() > now()) return;
++      if (counters.some((record, index) => (record.data()?.count || 0) >= limits[index].max)) throw new ApiError(429, 'DEMO_RATE_LIMIT', 'Has enviado varias solicitudes. Espera 15 minutos antes de intentar de nuevo.');
++      const timestamp = now();
++      limits.forEach((item, index) => tx.set(item.ref, { count: (counters[index].data()?.count || 0) + 1, expiresAt: new Date((bucket + 2) * WINDOW) }));
++      tx.set(duplicate, { expiresAt: new Date(timestamp + 86400000) });
++      tx.create(ref, { ...data, status: 'pendiente', notes: '', revision: 0, fingerprint, createdAt: timestamp, updatedAt: timestamp });
++    });
++    // No devuelve datos ni identificadores de solicitudes a visitantes.
++    return { accepted: true };
++  }
++  function visible(record) { const { fingerprint, ...data } = record.data(); return { id: record.id, ...data }; }
++  async function list(status, cursor) {
++    if (status && !validation.STATES.includes(status)) validation.invalid('El estado no es válido.');
++    let query = db.collection('websiteDemoRequests');
++    if (status) query = query.where('status', '==', status);
++    query = query.orderBy('createdAt', 'desc').orderBy(FieldPath.documentId(), 'desc');
++    if (cursor) {
++      validation.identifier(cursor);
++      const record = await db.collection('websiteDemoRequests').doc(cursor).get();
++      if (!record.exists) validation.invalid('La página solicitada ya no está disponible.');
++      query = query.startAfter(record.data().createdAt, record.id);
++    }
++    const result = await query.limit(26).get();
++    const records = result.docs.slice(0, 25);
++    return { items: records.map(visible), nextCursor: result.docs.length > 25 ? records.at(-1).id : null };
++  }
++  async function detail(id) {
++    const record = await db.collection('websiteDemoRequests').doc(validation.identifier(id)).get();
++    if (!record.exists) throw new ApiError(404, 'DEMO_NOT_FOUND', 'No se encontró la solicitud.');
++    return visible(record);
++  }
++  async function update(id, body, uid) {
++    validation.object(body, ['status', 'notes', 'revision']);
++    if (!validation.STATES.includes(body.status)) validation.invalid('El estado no es válido.');
++    const notes = validation.text(body.notes, 'Notas', 0, 5000);
++    if (!Number.isSafeInteger(body.revision) || body.revision < 0) validation.invalid('La revisión no es válida.');
++    const ref = db.collection('websiteDemoRequests').doc(validation.identifier(id));
++    await db.runTransaction(async tx => {
++      const record = await tx.get(ref);
++      if (!record.exists) throw new ApiError(404, 'DEMO_NOT_FOUND', 'No se encontró la solicitud.');
++      if (record.data().revision !== body.revision) throw new ApiError(409, 'DEMO_CHANGED', 'Otro administrador actualizó esta solicitud. Vuelve a abrirla antes de guardar.');
++      tx.update(ref, { status: body.status, notes, revision: body.revision + 1, updatedAt: now(), updatedBy: uid });
++    });
++    return detail(id);
++  }
++  return { challenge, submit, list, detail, update };
++}
++module.exports = { createDemos };
+diff --git a/server/modules/website/github.js b/server/modules/website/github.js
+new file mode 100644
+index 0000000..abb5522
+--- /dev/null
++++ b/server/modules/website/github.js
+@@ -0,0 +1,62 @@
++const { createReadStream } = require('node:fs');
++const { ApiError } = require('../shared/http');
++function createGithub({ token = process.env.GITHUB_RELEASE_TOKEN, owner = process.env.GITHUB_RELEASE_OWNER || 'WaltzP', repo = process.env.GITHUB_RELEASE_REPO || 'MilpaWeb', fetchImpl = fetch } = {}) {
++  const base = `https://api.github.com/repos/${owner}/${repo}`;
++  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10', 'User-Agent': 'MilpaGrow-Website' };
++  async function request(url, options = {}) {
++    if (!token || !/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) throw new ApiError(503, 'GITHUB_CONFIG', 'Configura la distribución de instaladores en el servidor.');
++    let response;
++    try { response = await fetchImpl(url, { ...options, headers: { ...headers, ...options.headers }, redirect: 'error', signal: AbortSignal.timeout(options.body && typeof options.body !== 'string' ? 600000 : 30000) }); }
++    catch { throw new ApiError(502, 'GITHUB_NETWORK', 'No se pudo completar la operación con GitHub. Puedes volver a intentar.'); }
++    if (!response.ok) throw new ApiError(502, 'GITHUB_ERROR', `GitHub no completó la operación (${response.status}). Revisa los permisos y vuelve a intentar.`);
++    return response.json();
++  }
++  async function draft(record) {
++    if (record.githubReleaseId) return request(`${base}/releases/${record.githubReleaseId}`);
++    // Recupera borradores que quedaron creados antes de una interrupción de la API.
++    for (let page = 1; page <= 10; page++) {
++      const releases = await request(`${base}/releases?per_page=100&page=${page}`);
++      const found = releases.find(item => item.tag_name === record.tag);
++      if (found) {
++        if (!found.draft) throw new ApiError(409, 'RELEASE_TAG_EXISTS', 'Ya existe una versión publicada con este código. Usa uno nuevo.');
++        return found;
++      }
++      if (releases.length < 100) break;
++    }
++    return request(`${base}/releases`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag_name: record.tag, name: `MilpaGrow ${record.version}`, body: record.notes, draft: true, prerelease: false }) });
++  }
++  function downloadUrl(url) {
++    const expected = `https://github.com/${owner}/${repo}/releases/download/`;
++    if (typeof url !== 'string' || !url.startsWith(expected) || /\s/.test(url)) throw new ApiError(502, 'GITHUB_ASSET', 'GitHub devolvió un enlace de descarga inválido.');
++    return url;
++  }
++  async function upload(release, file, size, sha256) {
++    if (!release.draft) throw new ApiError(409, 'RELEASE_PUBLISHED', 'Esta versión ya está publicada.');
++    const name = 'MilpaGrow.apk';
++    for (const asset of release.assets || []) if (asset.name === name) {
++      // Reutiliza el archivo completo cuando una respuesta anterior se perdió.
++      if (asset.state === 'uploaded' && asset.size === size && asset.digest === `sha256:${sha256}`) return { ...asset, browser_download_url: downloadUrl(asset.browser_download_url) };
++      const response = await fetchImpl(`${base}/releases/assets/${asset.id}`, { method: 'DELETE', headers, signal: AbortSignal.timeout(30000), redirect: 'error' }).catch(() => null);
++      if (!response?.ok) throw new ApiError(502, 'GITHUB_ERROR', 'No se pudo preparar el reintento de carga en GitHub.');
++    }
++    const asset = await request(`https://uploads.github.com/repos/${owner}/${repo}/releases/${release.id}/assets?name=${name}`, {
++      method: 'POST', headers: { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Length': String(size) }, body: createReadStream(file), duplex: 'half',
++    });
++    if (asset.state !== 'uploaded' || asset.size !== size || (asset.digest && asset.digest !== `sha256:${sha256}`)) throw new ApiError(502, 'GITHUB_ASSET', 'GitHub no confirmó la carga completa del APK.');
++    return { ...asset, browser_download_url: downloadUrl(asset.browser_download_url) };
++  }
++  async function publish(record) {
++    const repository = await request(base);
++    if (repository.private !== false) throw new ApiError(409, 'PRIVATE_RELEASE_REPO', 'El repositorio de instaladores debe ser público.');
++    const asset = await request(`${base}/releases/assets/${record.githubAssetId}`);
++    if (asset.state !== 'uploaded' || asset.size !== record.sizeBytes || (asset.digest && asset.digest !== `sha256:${record.sha256}`)) throw new ApiError(409, 'ASSET_INCOMPLETE', 'El APK no está disponible o cambió en GitHub. Vuelve a cargarlo.');
++    downloadUrl(asset.browser_download_url);
++    let release = await request(`${base}/releases/${record.githubReleaseId}`);
++    if (!(release.assets || []).some(item => item.id === record.githubAssetId)) throw new ApiError(409, 'ASSET_MISMATCH', 'El APK no pertenece a esta versión.');
++    if (release.draft) release = await request(`${base}/releases/${record.githubReleaseId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft: false, prerelease: false, make_latest: 'false' }) });
++    if (release.draft || release.prerelease || !release.published_at) throw new ApiError(502, 'GITHUB_PUBLISH', 'GitHub no confirmó la publicación.');
++    return { publishedAt: release.published_at, downloadUrl: asset.browser_download_url };
++  }
++  return { draft, upload, publish };
++}
++module.exports = { createGithub };
+diff --git a/server/modules/website/releases.js b/server/modules/website/releases.js
+new file mode 100644
+index 0000000..c5742c6
+--- /dev/null
++++ b/server/modules/website/releases.js
+@@ -0,0 +1,111 @@
++const { mkdtemp, rm } = require('node:fs/promises');
++const { createWriteStream } = require('node:fs');
++const { tmpdir } = require('node:os');
++const path = require('node:path');
++const { Transform } = require('node:stream');
++const { pipeline } = require('node:stream/promises');
++const { createHash } = require('node:crypto');
++const { FieldPath } = require('firebase-admin/firestore');
++const { ApiError } = require('../shared/http');
++const validation = require('./validation');
++const { validateApk } = require('./apk');
++const { createGithub } = require('./github');
++const MAX_BYTES = 250 * 1024 * 1024;
++const LEASE_MS = 20 * 60 * 1000;
++function createReleases(db, { github = createGithub(), now = Date.now, maxBytes = MAX_BYTES } = {}) {
++  const collection = () => db.collection('websiteReleases');
++  const current = () => db.collection('websiteSettings').doc('publicRelease');
++  function manifest(record) {
++    return { id: record.id, version: record.version, versionCode: record.versionCode, notes: record.notes, minAndroid: record.minAndroid, sizeBytes: record.sizeBytes, sha256: record.sha256, downloadUrl: record.downloadUrl, publishedAt: record.publishedAt };
++  }
++  async function publicVersion() { return (await current().get()).data()?.release || null; }
++  async function create(body, uid) {
++    const data = validation.release(body);
++    const id = `android-${data.versionCode}`;
++    const ref = collection().doc(id);
++    await db.runTransaction(async tx => {
++      if ((await tx.get(ref)).exists) throw new ApiError(409, 'VERSION_EXISTS', 'Este código de versión ya está registrado. Reintenta su carga desde el historial o usa otro código.');
++      tx.create(ref, { ...data, status: 'draft', tag: `milpagrow-android-${data.versionCode}`, createdAt: now(), createdBy: uid, updatedAt: now() });
++    });
++    return detail(id);
++  }
++  async function detail(id) {
++    const record = await collection().doc(validation.identifier(id)).get();
++    if (!record.exists) throw new ApiError(404, 'RELEASE_NOT_FOUND', 'No se encontró esta versión.');
++    return { id: record.id, ...record.data() };
++  }
++  async function list(cursor) {
++    let query = collection().orderBy('createdAt', 'desc').orderBy(FieldPath.documentId(), 'desc');
++    if (cursor) {
++      const record = await detail(cursor);
++      query = query.startAfter(record.createdAt, record.id);
++    }
++    const [result, settings] = await Promise.all([query.limit(26).get(), current().get()]);
++    const records = result.docs.slice(0, 25);
++    return { items: records.map(record => ({ id: record.id, ...record.data() })), nextCursor: result.docs.length > 25 ? records.at(-1).id : null, currentReleaseId: settings.data()?.release?.id || null, maxBytes };
++  }
++  async function claim(id, operation, allowed) {
++    const ref = collection().doc(validation.identifier(id));
++    let record;
++    await db.runTransaction(async tx => {
++      const snapshot = await tx.get(ref);
++      if (!snapshot.exists) throw new ApiError(404, 'RELEASE_NOT_FOUND', 'No se encontró esta versión.');
++      record = { id, ...snapshot.data() };
++      if (record.leaseUntil > now()) throw new ApiError(409, 'RELEASE_BUSY', 'Esta versión tiene una operación en curso. Espera antes de volver a intentar.');
++      const previous = ['uploading', 'publishing'].includes(record.status) ? record.previousStatus : record.status;
++      if (!allowed.includes(previous)) throw new ApiError(409, 'RELEASE_STATE', 'Completa la carga del APK antes de publicar esta versión.');
++      tx.update(ref, { status: operation, previousStatus: previous, leaseUntil: now() + LEASE_MS, updatedAt: now(), error: '' });
++      record.previousStatus = previous;
++    });
++    return record;
++  }
++  async function upload(id, request, uid) {
++    const type = (request.headers['content-type'] || '').split(';')[0];
++    if (!['application/octet-stream', 'application/vnd.android.package-archive'].includes(type)) throw new ApiError(415, 'APK_CONTENT_TYPE', 'Selecciona un archivo APK para cargar.');
++    const announced = Number(request.headers['content-length']);
++    if (announced > maxBytes) throw new ApiError(413, 'APK_TOO_LARGE', 'El APK supera el tamaño máximo de carga.');
++    const record = await claim(id, 'uploading', ['draft', 'failed']);
++    let directory;
++    try {
++      directory = await mkdtemp(path.join(tmpdir(), 'milpagrow-apk-'));
++      const file = path.join(directory, 'MilpaGrow.apk');
++      let size = 0;
++      const hash = createHash('sha256');
++      request.setTimeout?.(600000);
++      const guard = new Transform({ transform(chunk, encoding, callback) {
++        size += chunk.length;
++        if (size > maxBytes) return callback(new ApiError(413, 'APK_TOO_LARGE', 'El APK supera el tamaño máximo de carga.'));
++        hash.update(chunk); callback(null, chunk);
++      } });
++      await pipeline(request, guard, createWriteStream(file, { flags: 'wx', mode: 0o600 }));
++      if (!size || (Number.isFinite(announced) && request.headers['content-length'] && announced !== size)) throw new ApiError(400, 'APK_INCOMPLETE', 'El archivo llegó incompleto. Vuelve a cargarlo.');
++      await validateApk(file);
++      const sha256 = hash.digest('hex');
++      const release = await github.draft(record);
++      await collection().doc(id).update({ githubReleaseId: release.id });
++      const asset = await github.upload(release, file, size, sha256);
++      await collection().doc(id).update({ status: 'uploaded', leaseUntil: 0, sizeBytes: size, sha256, githubAssetId: asset.id, downloadUrl: asset.browser_download_url, uploadedBy: uid, updatedAt: now(), error: '' });
++      return detail(id);
++    } catch (error) {
++      await collection().doc(id).update({ status: 'failed', leaseUntil: 0, updatedAt: now(), error: error instanceof ApiError ? error.message : 'La carga fue interrumpida. Vuelve a intentar.' });
++      throw error;
++    } finally { if (directory) await rm(directory, { recursive: true, force: true }); }
++  }
++  async function publish(id, uid) {
++    const record = await claim(id, 'publishing', ['uploaded', 'published']);
++    try {
++      const result = await github.publish(record);
++      const published = { ...record, ...result, status: 'published' };
++      await db.runTransaction(async tx => {
++        tx.update(collection().doc(id), { ...result, status: 'published', leaseUntil: 0, publishedBy: uid, updatedAt: now(), error: '' });
++        tx.set(current(), { release: manifest(published), selectedAt: now(), selectedBy: uid });
++      });
++      return manifest(published);
++    } catch (error) {
++      await collection().doc(id).update({ status: record.previousStatus, leaseUntil: 0, updatedAt: now(), error: error instanceof ApiError ? error.message : 'No se pudo completar la publicación. Puedes reintentar.' });
++      throw error;
++    }
++  }
++  return { publicVersion, create, detail, list, upload, publish };
++}
++module.exports = { createReleases, MAX_BYTES };
+diff --git a/server/modules/website/validation.js b/server/modules/website/validation.js
+new file mode 100644
+index 0000000..fdc81ab
+--- /dev/null
++++ b/server/modules/website/validation.js
+@@ -0,0 +1,37 @@
++const { ApiError } = require('../shared/http');
++const STATES = ['pendiente', 'contactada', 'agendada', 'realizada', 'cerrada'];
++const ACTIVITIES = ['agricola', 'porcina', 'mixta', 'otra'];
++function invalid(message) { throw new ApiError(400, 'VALIDATION_ERROR', message); }
++function object(value, keys) {
++  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !keys.includes(key))) invalid('Los campos enviados no son válidos.');
++}
++function text(value, name, min, max) {
++  if (typeof value !== 'string') invalid(`${name}: introduce texto válido.`);
++  const normalized = value.trim();
++  if (normalized.length < min || normalized.length > max || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(normalized)) invalid(`${name}: usa entre ${min} y ${max} caracteres.`);
++  return normalized;
++}
++function demo(value) {
++  object(value, ['name', 'email', 'phone', 'activity', 'message', 'website', 'challenge']);
++  const name = text(value.name, 'Nombre', 2, 100);
++  const email = text(value.email, 'Correo', 3, 254).toLowerCase();
++  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) invalid('Introduce un correo válido.');
++  const phone = text(value.phone ?? '', 'Teléfono', 0, 30);
++  if (phone && !/^\+?[\d\s().-]{7,30}$/.test(phone)) invalid('Introduce un teléfono válido.');
++  if (!ACTIVITIES.includes(value.activity)) invalid('Selecciona una actividad de interés.');
++  return { name, email, phone, activity: value.activity, message: text(value.message, 'Mensaje', 10, 2000) };
++}
++function release(value) {
++  object(value, ['version', 'versionCode', 'notes', 'minAndroid']);
++  const version = text(value.version, 'Versión', 3, 50);
++  if (!/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(version)) invalid('Usa una versión como 1.2.0.');
++  if (!Number.isSafeInteger(value.versionCode) || value.versionCode < 1 || value.versionCode > 2100000000) invalid('El código de versión debe ser un entero positivo.');
++  const minAndroid = text(value.minAndroid, 'Android mínimo', 1, 20);
++  if (!/^\d+(?:\.\d+){0,2}$/.test(minAndroid)) invalid('Usa un requisito como 7.0.');
++  return { version, versionCode: value.versionCode, notes: text(value.notes, 'Novedades', 10, 5000), minAndroid };
++}
++function identifier(value) {
++  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(value)) invalid('El identificador no es válido.');
++  return value;
++}
++module.exports = { STATES, ACTIVITIES, invalid, object, text, demo, release, identifier };
+diff --git a/server/modules/website/website.routes.js b/server/modules/website/website.routes.js
+new file mode 100644
+index 0000000..32cc7db
+--- /dev/null
++++ b/server/modules/website/website.routes.js
+@@ -0,0 +1,30 @@
++const express = require('express');
++const db = require('../../firebaseAdmin');
++const { ApiError, asyncHandler, ok } = require('../shared/http');
++const { createAuthRateLimit } = require('../../middleware/authRateLimit');
++const { adminMiddleware } = require('./admin');
++const { createDemos } = require('./demos');
++const { createReleases } = require('./releases');
++function createWebsiteRouter({ database = db, demos = createDemos(database), releases = createReleases(database), admin = adminMiddleware } = {}) {
++  const router = express.Router();
++  router.use((req, res, next) => {
++    res.set('Cache-Control', 'no-store');
++    if (!database) return next(new ApiError(503, 'WEBSITE_CONFIG', 'El servicio todavía no está disponible.'));
++    next();
++  });
++  router.get('/release', asyncHandler(async (req, res) => ok(res, await releases.publicVersion())));
++  router.get('/demo-challenge', asyncHandler(async (req, res) => ok(res, demos.challenge())));
++  router.post('/demo-requests', createAuthRateLimit({ limit: 60 }), express.json({ limit: '16kb' }), asyncHandler(async (req, res) => ok(res, await demos.submit(req.body, req.get('Idempotency-Key'), req.ip), 202)));
++  router.use('/admin', ...admin);
++  router.get('/admin/session', (req, res) => ok(res, { uid: req.user.uid, email: req.user.email }));
++  router.get('/admin/demo-requests', asyncHandler(async (req, res) => ok(res, await demos.list(req.query.status, req.query.cursor))));
++  router.get('/admin/demo-requests/:id', asyncHandler(async (req, res) => ok(res, await demos.detail(req.params.id))));
++  router.patch('/admin/demo-requests/:id', express.json({ limit: '16kb' }), asyncHandler(async (req, res) => ok(res, await demos.update(req.params.id, req.body, req.user.uid))));
++  router.get('/admin/releases', asyncHandler(async (req, res) => ok(res, await releases.list(req.query.cursor))));
++  router.post('/admin/releases', express.json({ limit: '16kb' }), asyncHandler(async (req, res) => ok(res, await releases.create(req.body, req.user.uid), 201)));
++  router.put('/admin/releases/:id/apk', asyncHandler(async (req, res) => ok(res, await releases.upload(req.params.id, req, req.user.uid))));
++  router.post('/admin/releases/:id/publish', asyncHandler(async (req, res) => ok(res, await releases.publish(req.params.id, req.user.uid))));
++  return router;
++}
++module.exports = createWebsiteRouter();
++module.exports.createWebsiteRouter = createWebsiteRouter;
+diff --git a/server/package-lock.json b/server/package-lock.json
+index 6393519..73c42ac 100644
+--- a/server/package-lock.json
++++ b/server/package-lock.json
+@@ -12,7 +12,8 @@
+         "cors": "^2.8.6",
+         "dotenv": "^17.4.2",
+         "express": "^5.2.1",
+-        "firebase-admin": "^14.4.0"
++        "firebase-admin": "^14.4.0",
++        "yauzl": "^3.4.0"
+       }
+     },
+     "node_modules/@fastify/busboy": {
+@@ -2438,6 +2439,12 @@
+         "url": "https://opencollective.com/express"
+       }
+     },
++    "node_modules/pend": {
++      "version": "1.2.0",
++      "resolved": "https://registry.npmjs.org/pend/-/pend-1.2.0.tgz",
++      "integrity": "sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg==",
++      "license": "MIT"
++    },
+     "node_modules/proto3-json-serializer": {
+       "version": "4.0.2",
+       "resolved": "https://registry.npmjs.org/proto3-json-serializer/-/proto3-json-serializer-4.0.2.tgz",
+@@ -3229,6 +3236,18 @@
+         "node": ">=12"
+       }
+     },
++    "node_modules/yauzl": {
++      "version": "3.4.0",
++      "resolved": "https://registry.npmjs.org/yauzl/-/yauzl-3.4.0.tgz",
++      "integrity": "sha512-jIH9yLR9wqr0wOS0TpBvo/g/2UgZH5qePVbjgRliiF0BYvOZyaBknKsF+x9Iht0O6sqgnB93rCICdOZFecJuDw==",
++      "license": "MIT",
++      "dependencies": {
++        "pend": "~1.2.0"
++      },
++      "engines": {
++        "node": ">=12"
++      }
++    },
+     "node_modules/yocto-queue": {
+       "version": "0.1.0",
+       "resolved": "https://registry.npmjs.org/yocto-queue/-/yocto-queue-0.1.0.tgz",
+diff --git a/server/package.json b/server/package.json
+index def9bc6..834fdad 100644
+--- a/server/package.json
++++ b/server/package.json
+@@ -16,6 +16,7 @@
+     "cors": "^2.8.6",
+     "dotenv": "^17.4.2",
+     "express": "^5.2.1",
+-    "firebase-admin": "^14.4.0"
++    "firebase-admin": "^14.4.0",
++    "yauzl": "^3.4.0"
+   }
+ }
+diff --git a/server/scripts/setWebsiteAdmin.js b/server/scripts/setWebsiteAdmin.js
+new file mode 100644
+index 0000000..21d46d8
+--- /dev/null
++++ b/server/scripts/setWebsiteAdmin.js
+@@ -0,0 +1,16 @@
++// Ejecutar desde server/ con credenciales Admin del mismo proyecto que la app.
++require('../firebaseAdmin');
++const { getAuth } = require('firebase-admin/auth');
++async function main() {
++  const [email, action = 'grant'] = process.argv.slice(2);
++  if (!email || !['grant', 'revoke'].includes(action)) throw new Error('Uso: node scripts/setWebsiteAdmin.js correo@example.com grant|revoke');
++  const auth = getAuth();
++  const user = await auth.getUserByEmail(email);
++  if (!user.emailVerified || user.disabled) throw new Error('La cuenta debe tener correo verificado y estar habilitada.');
++  const claims = { ...user.customClaims };
++  if (action === 'grant') claims.milpagrowAdmin = true;
++  else delete claims.milpagrowAdmin;
++  await auth.setCustomUserClaims(user.uid, claims);
++  console.log(`Permiso administrativo ${action === 'grant' ? 'asignado' : 'retirado'} a ${email}. Inicia una nueva sesión en el panel.`);
++}
++main().catch(error => { console.error(error.message); process.exitCode = 1; });
+diff --git a/server/test/website.integration.test.js b/server/test/website.integration.test.js
+new file mode 100644
+index 0000000..affa81f
+--- /dev/null
++++ b/server/test/website.integration.test.js
+@@ -0,0 +1,122 @@
++const test = require('node:test');
++const assert = require('node:assert/strict');
++const { randomUUID, createHash } = require('node:crypto');
++const { readFile } = require('node:fs/promises');
++const emulated = process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_AUTH_EMULATOR_HOST;
++test('landing: persistencia, acceso, gestión, carga real y publicación', { skip: !emulated }, async t => {
++  for (const host of [process.env.FIRESTORE_EMULATOR_HOST, process.env.FIREBASE_AUTH_EMULATOR_HOST]) assert.match(host, /^(127\.0\.0\.1|localhost):\d+$/);
++  for (const key of ['FIREBASE_SERVICE_ACCOUNT_JSON', 'FIREBASE_SERVICE_ACCOUNT_BASE64', 'GOOGLE_APPLICATION_CREDENTIALS']) delete process.env[key];
++  process.env.NODE_ENV = 'production'; process.env.FIREBASE_PROJECT_ID = 'demo-milpagrow'; process.env.AUTH_TOKEN_SECRET = 'emulator-only-email-code-secret';
++  process.env.WEBSITE_SPAM_SECRET = 'emulator-only-website-spam-secret-32';
++  const sent = [];
++  require('../modules/auth/auth.service').sendLoginCode = async (email, code) => sent.push({ email, code });
++  const db = require('../firebaseAdmin'); const { getAuth } = require('firebase-admin/auth');
++  const express = require('express'); const { fail } = require('../modules/shared/http');
++  const { createDemos } = require('../modules/website/demos'); const { createReleases } = require('../modules/website/releases');
++  const { createWebsiteRouter } = require('../modules/website/website.routes');
++  let clock = Date.now(), failUpload = false, failPublish = false, lastUpload;
++  const github = {
++    draft: async record => ({ id: record.versionCode, draft: true, assets: [] }),
++    upload: async (release, file, size, sha256) => {
++      if (failUpload) throw new Error('Simulated GitHub outage');
++      const bytes = await readFile(file); assert.equal(bytes.length, size); assert.equal(createHash('sha256').update(bytes).digest('hex'), sha256);
++      lastUpload = { size, sha256 };
++      return { id: release.id * 10, browser_download_url: `https://github.com/WaltzP/MilpaWeb/releases/download/test-${release.id}/MilpaGrow.apk` };
++    },
++    publish: async record => { if (failPublish) throw new Error('Simulated publish outage'); assert.ok(record.githubAssetId); return { publishedAt: new Date(clock).toISOString(), downloadUrl: record.downloadUrl }; },
++  };
++  const app = express(); app.use('/api/auth', express.json(), require('../modules/auth/auth.routes'));
++  app.use('/api/website', createWebsiteRouter({ database: db, demos: createDemos(db, { now: () => clock }), releases: createReleases(db, { github, now: () => clock }) }));
++  app.use((error, req, res, next) => fail(res, error));
++  const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve)); t.after(() => new Promise(resolve => server.close(resolve)));
++  const base = `http://127.0.0.1:${server.address().port}/api`;
++  async function api(method, route, body, identity, headers = {}) {
++    const response = await fetch(`${base}${route}`, { method, headers: { ...(identity ? { Authorization: `Bearer ${identity.token}` } : {}), ...(body instanceof Buffer ? { 'Content-Type': 'application/vnd.android.package-archive' } : body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers }, ...(body === undefined ? {} : { body: body instanceof Buffer ? body : JSON.stringify(body) }) });
++    return { status: response.status, body: await response.json() };
++  }
++  async function account(admin, verified = true) {
++    const email = `website-${randomUUID()}@example.test`;
++    const endpoint = `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:`;
++    const credentials = { email, password: 'DemoPassword123', returnSecureToken: true };
++    const signup = await fetch(`${endpoint}signUp?key=demo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(credentials) }); const user = await signup.json(); assert.equal(signup.status, 200);
++    await getAuth().updateUser(user.localId, { emailVerified: verified });
++    if (admin) await getAuth().setCustomUserClaims(user.localId, { milpagrowAdmin: true });
++    const signin = await fetch(`${endpoint}signInWithPassword?key=demo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(credentials) }); const passwordToken = (await signin.json()).idToken;
++    const start = await api('POST', '/auth/login-code', {}, { token: passwordToken }); assert.equal(start.status, 200);
++    const confirm = await api('POST', '/auth/login-code/confirm', { challenge: start.body.data.challenge, code: sent.find(item => item.email === email).code }); assert.equal(confirm.status, 200);
++    const exchange = await fetch(`${endpoint}signInWithCustomToken?key=demo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: confirm.body.data.customToken, returnSecureToken: true }) }); const session = await exchange.json(); assert.equal(exchange.status, 200);
++    return { uid: user.localId, token: session.idToken, passwordToken };
++  }
++  const admin = await account(true), stranger = await account(false), unverified = await account(true, false);
++  const demoBody = { name: 'Productora demo', email: 'productora@example.test', phone: '', activity: 'mixta', message: 'Quiero conocer cómo organizar los registros de mi finca.', website: '' };
++  let demoId;
++  await t.test('visitante guarda; reintentos y duplicados concurrentes guardan una sola solicitud', async () => {
++    const challenge = await api('GET', '/website/demo-challenge'); demoBody.challenge = challenge.body.data.challenge;
++    assert.equal((await api('POST', '/website/demo-requests', demoBody, undefined, { 'Idempotency-Key': randomUUID() })).status, 400);
++    clock += 2200; const key = randomUUID();
++    const attempts = await Promise.all(Array.from({ length: 3 }, () => api('POST', '/website/demo-requests', demoBody, undefined, { 'Idempotency-Key': key })));
++    assert.deepEqual(attempts.map(result => result.status), [202, 202, 202]);
++    const requests = await db.collection('websiteDemoRequests').get(); assert.equal(requests.size, 1); demoId = requests.docs[0].id;
++    assert.equal((await api('POST', '/website/demo-requests', demoBody, undefined, { 'Idempotency-Key': randomUUID() })).status, 202);
++    assert.equal((await db.collection('websiteDemoRequests').get()).size, 1);
++    assert.equal((await api('POST', '/website/demo-requests', { ...demoBody, message: 'Cambió el mensaje del envío' }, undefined, { 'Idempotency-Key': key })).status, 409);
++  });
++  await t.test('servidor valida campos, honeypot, desafío y límites persistentes', async () => {
++    for (const body of [{ ...demoBody, email: 'mal' }, { ...demoBody, name: ' ' }, { ...demoBody, phone: 'not-a-phone' }, { ...demoBody, message: 'x' }, { ...demoBody, website: 'spam' }, { ...demoBody, activity: 'inexistente' }, { ...demoBody, injected: true }, { ...demoBody, challenge: 'forged' }]) assert.equal((await api('POST', '/website/demo-requests', body, undefined, { 'Idempotency-Key': randomUUID() })).status, 400);
++    for (let i = 0; i < 2; i++) assert.equal((await api('POST', '/website/demo-requests', { ...demoBody, message: `Una solicitud diferente número ${i}` }, undefined, { 'Idempotency-Key': randomUUID() })).status, 202);
++    assert.equal((await api('POST', '/website/demo-requests', { ...demoBody, message: 'Cuarta solicitud en la ventana' }, undefined, { 'Idempotency-Key': randomUUID() })).status, 429);
++  });
++  await t.test('cada operación rechaza visitantes, cuentas sin permiso y sesiones sin código', async () => {
++    const routes = [['GET', '/session'], ['GET', '/demo-requests'], ['GET', `/demo-requests/${demoId}`], ['PATCH', `/demo-requests/${demoId}`], ['GET', '/releases'], ['POST', '/releases'], ['PUT', '/releases/android-1/apk'], ['POST', '/releases/android-1/publish']];
++    for (const [method, route] of routes) {
++      assert.equal((await api(method, `/website/admin${route}`, undefined)).status, 401);
++      const denied = await api(method, `/website/admin${route}`, undefined, stranger); assert.equal(denied.status, 403); assert.equal(denied.body.error.code, 'ADMIN_REQUIRED');
++      assert.equal((await api(method, `/website/admin${route}`, undefined, { token: admin.passwordToken })).body.error.code, 'MFA_REQUIRED');
++      assert.equal((await api(method, `/website/admin${route}`, undefined, unverified)).body.error.code, 'EMAIL_NOT_VERIFIED');
++    }
++  });
++  await t.test('admin consulta, cambia los cinco estados, guarda notas y evita sobreescrituras', async () => {
++    let record = (await api('GET', `/website/admin/demo-requests/${demoId}`, undefined, admin)).body.data;
++    assert.equal(record.name, demoBody.name); assert.equal(record.fingerprint, undefined);
++    for (const state of ['pendiente', 'contactada', 'agendada', 'realizada', 'cerrada']) {
++      const result = await api('PATCH', `/website/admin/demo-requests/${demoId}`, { status: state, notes: 'Llamada realizada; revisar agenda.', revision: record.revision }, admin); assert.equal(result.status, 200); record = result.body.data;
++      const list = await api('GET', `/website/admin/demo-requests?status=${state}`, undefined, admin); assert.ok(list.body.data.items.some(item => item.id === demoId));
++    }
++    assert.equal((await api('PATCH', `/website/admin/demo-requests/${demoId}`, { status: 'cerrada', notes: 'Stale', revision: 0 }, admin)).status, 409);
++    assert.equal((await db.collection('websiteDemoRequests').doc(demoId).get()).data().notes, 'Llamada realizada; revisar agenda.');
++  });
++  await t.test('Firestore no permite acceso directo a solicitudes, límites o versiones', async () => {
++    for (const collection of ['websiteDemoRequests', 'websiteDemoLimits', 'websiteDemoDedup', 'websiteReleases', 'websiteSettings']) {
++      const response = await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST}/v1/projects/demo-milpagrow/databases/(default)/documents/${collection}/test`, { headers: { Authorization: `Bearer ${admin.token}` } }); assert.equal(response.status, 403);
++    }
++  });
++  await t.test('revocar el permiso bloquea inmediatamente incluso un token anterior', async () => {
++    await getAuth().setCustomUserClaims(admin.uid, {});
++    assert.equal((await api('GET', '/website/admin/session', undefined, admin)).status, 403);
++    await getAuth().setCustomUserClaims(admin.uid, { milpagrowAdmin: true });
++  });
++  await t.test('APK inválido y carga fallida nunca cambian la descarga pública', async () => {
++    const created = await api('POST', '/website/admin/releases', { version: '1.0.0', versionCode: 1, minAndroid: '7.0', notes: 'Primer instalador de prueba.' }, admin); assert.equal(created.status, 201);
++    assert.equal((await api('POST', '/website/admin/releases/android-1/publish', undefined, admin)).status, 409);
++    const invalid = await api('PUT', '/website/admin/releases/android-1/apk', Buffer.from('renamed file'), admin); assert.equal(invalid.status, 400); assert.equal(invalid.body.error.code, 'INVALID_APK');
++    assert.equal((await api('GET', '/website/release')).body.data, null);
++    assert.equal((await api('GET', '/website/admin/releases', undefined, admin)).body.data.items[0].status, 'failed');
++  });
++  await t.test('APK real: carga, publicación, historial y selección de versión anterior', { skip: !process.env.MILPAGROW_TEST_APK }, async () => {
++    const apk = await readFile(process.env.MILPAGROW_TEST_APK);
++    failUpload = true; assert.equal((await api('PUT', '/website/admin/releases/android-1/apk', apk, admin)).status, 500); assert.equal((await api('GET', '/website/release')).body.data, null); failUpload = false;
++    const uploaded = await api('PUT', '/website/admin/releases/android-1/apk', apk, admin); assert.equal(uploaded.status, 200, JSON.stringify(uploaded.body)); assert.equal(uploaded.body.data.sizeBytes, lastUpload.size); assert.equal((await api('GET', '/website/release')).body.data, null);
++    failPublish = true; assert.equal((await api('POST', '/website/admin/releases/android-1/publish', undefined, admin)).status, 500); assert.equal((await api('GET', '/website/release')).body.data, null); failPublish = false;
++    assert.equal((await api('POST', '/website/admin/releases/android-1/publish', undefined, admin)).status, 200);
++    const publicRelease = (await api('GET', '/website/release')).body.data; assert.equal(publicRelease.version, '1.0.0'); assert.equal(publicRelease.sizeBytes, apk.length); assert.equal(publicRelease.sha256, lastUpload.sha256); assert.ok(!('createdBy' in publicRelease));
++    assert.equal((await api('PUT', '/website/admin/releases/android-1/apk', apk, admin)).status, 409);
++    assert.equal((await api('POST', '/website/admin/releases', { version: '1.0.1', versionCode: 2, minAndroid: '7.0', notes: 'Segundo instalador de prueba.' }, admin)).status, 201);
++    assert.equal((await api('PUT', '/website/admin/releases/android-2/apk', apk, admin)).status, 200);
++    assert.equal((await api('GET', '/website/release')).body.data.versionCode, 1);
++    assert.equal((await api('POST', '/website/admin/releases/android-2/publish', undefined, admin)).status, 200);
++    assert.equal((await api('GET', '/website/release')).body.data.versionCode, 2);
++    assert.equal((await api('POST', '/website/admin/releases/android-1/publish', undefined, admin)).status, 200);
++    assert.equal((await api('GET', '/website/release')).body.data.versionCode, 1);
++    assert.equal((await api('GET', '/website/admin/releases', undefined, admin)).body.data.items.length, 2);
++  });
++});
+diff --git a/server/test/website.test.js b/server/test/website.test.js
+new file mode 100644
+index 0000000..3b4c1e7
+--- /dev/null
++++ b/server/test/website.test.js
+@@ -0,0 +1,47 @@
++const test = require('node:test');
++const assert = require('node:assert/strict');
++const validation = require('../modules/website/validation');
++const { createGithub } = require('../modules/website/github');
++const { mkdtemp, writeFile, rm } = require('node:fs/promises');
++const { tmpdir } = require('node:os');
++const path = require('node:path');
++const { createHash } = require('node:crypto');
++test('metadatos de APK rechazan valores inválidos y campos inesperados', () => {
++  const valid = { version: '1.2.0', versionCode: 12, minAndroid: '7.0', notes: 'Mejoras de esta versión.' };
++  assert.deepEqual(validation.release(valid), valid);
++  for (const patch of [{ versionCode: '12' }, { versionCode: 0 }, { version: 'wrong' }, { notes: '' }, { minAndroid: 'Android' }, { githubToken: 'client-supplied' }]) assert.throws(() => validation.release({ ...valid, ...patch }), { code: 'VALIDATION_ERROR' });
++});
++test('GitHub verifica archivo, repositorio público y publicación; token sólo en servidor', async () => {
++  const calls = []; let privateRepo = false, incomplete = false, publicationFailure = false;
++  const asset = { id: 10, name: 'MilpaGrow.apk', state: 'uploaded', size: 123, digest: 'sha256:abc', browser_download_url: 'https://github.com/WaltzP/MilpaWeb/releases/download/v1/MilpaGrow.apk' };
++  const release = { id: 1, draft: true, assets: [asset] };
++  const github = createGithub({ token: 'server-only-test-token', fetchImpl: async (url, options) => {
++    calls.push({ url, options }); assert.equal(options.headers.Authorization, 'Bearer server-only-test-token');
++    let data = url.endsWith('/MilpaWeb') ? { private: privateRepo } : url.includes('/assets/') ? { ...asset, state: incomplete ? 'starter' : 'uploaded' } : options.method === 'PATCH' ? { ...release, draft: publicationFailure, prerelease: false, published_at: '2026-10-08T12:00:00Z' } : release;
++    return { ok: true, json: async () => data };
++  } });
++  const record = { githubReleaseId: 1, githubAssetId: 10, sizeBytes: 123, sha256: 'abc' };
++  privateRepo = true; await assert.rejects(github.publish(record), { code: 'PRIVATE_RELEASE_REPO' }); privateRepo = false;
++  incomplete = true; await assert.rejects(github.publish(record), { code: 'ASSET_INCOMPLETE' }); incomplete = false;
++  publicationFailure = true; await assert.rejects(github.publish(record), { code: 'GITHUB_PUBLISH' }); publicationFailure = false;
++  const result = await github.publish(record); assert.equal(result.downloadUrl, asset.browser_download_url);
++  assert.ok(calls.every(call => call.url.startsWith('https://api.github.com/repos/WaltzP/MilpaWeb')));
++  const patch = calls.find(call => call.options.method === 'PATCH'); assert.equal(JSON.parse(patch.options.body).make_latest, 'false');
++});
++test('GitHub crea borrador y transmite bytes; rechaza una confirmación incompleta', async t => {
++  const directory = await mkdtemp(path.join(tmpdir(), 'website-transport-test-')); t.after(() => rm(directory, { recursive: true, force: true }));
++  const file = path.join(directory, 'MilpaGrow.apk'); const bytes = Buffer.from('binary upload transport fixture'); await writeFile(file, bytes);
++  const sha256 = createHash('sha256').update(bytes).digest('hex'); let incomplete = false, uploads = 0;
++  const github = createGithub({ token: 'server-only-test-token', fetchImpl: async (url, options) => {
++    if (url.includes('uploads.github.com')) {
++      uploads++; const chunks = []; for await (const chunk of options.body) chunks.push(chunk); assert.deepEqual(Buffer.concat(chunks), bytes);
++      assert.equal(options.headers['Content-Length'], String(bytes.length)); assert.equal(options.headers['Content-Type'], 'application/vnd.android.package-archive');
++      return { ok: true, json: async () => ({ id: 10, state: incomplete ? 'starter' : 'uploaded', size: bytes.length, digest: `sha256:${sha256}`, browser_download_url: 'https://github.com/WaltzP/MilpaWeb/releases/download/tag/MilpaGrow.apk' }) };
++    }
++    if (options.method === 'POST') { const body = JSON.parse(options.body); assert.equal(body.draft, true); assert.equal(body.tag_name, 'test-tag'); return { ok: true, json: async () => ({ id: 1, draft: true, assets: [] }) }; }
++    return { ok: true, json: async () => [] };
++  } });
++  const draft = await github.draft({ tag: 'test-tag', version: '1.0.0', notes: 'Release transport test' });
++  assert.equal((await github.upload(draft, file, bytes.length, sha256)).id, 10);
++  incomplete = true; await assert.rejects(github.upload(draft, file, bytes.length, sha256), { code: 'GITHUB_ASSET' }); assert.equal(uploads, 2);
++});
+-- 
+2.55.0
+

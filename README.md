@@ -14,4 +14,36 @@ La aplicación requiere **Android 7.0 o superior**.
 
 La página se adapta a teléfonos y computadoras, incluye un menú móvil y permite elegir entre tema claro y oscuro. Las pantallas y conversaciones mostradas son ejemplos; la gestión de la finca se realiza desde la aplicación.
 
-La web se publica en Render y el instalador se ofrece desde GitHub. Su enlace de descarga debe ser público para que cualquiera pueda descargarlo sin iniciar sesión.
+La web se publica en Render y consulta la versión vigente desde la API de MilpaGrow. El instalador se ofrece desde GitHub Releases mediante un enlace público, sin iniciar sesión.
+
+## Segundo sprint
+
+- Solicitud de demostración sin cuenta, con validación, confirmación después de guardar y reintentos sin duplicados.
+- Panel en `admin.html`: cuenta de MilpaGrow, código de correo y permiso administrativo comprobado por la API.
+- Gestión de solicitudes, filtros, detalles, estados y notas persistentes en Firestore.
+- Carga de APK con progreso, publicación, selección de versión e historial. Los tokens de GitHub permanecen en el servidor.
+- Diseño original, menú móvil, interacciones, temas claro/oscuro y movimiento reducido conservados.
+
+La configuración pública se centraliza en `config.js`, generado durante el build. Copia `.env.example` a `.env`, configura las tres variables públicas y ejecuta:
+
+```bash
+set -a
+source .env
+set +a
+python3 scripts/preparar_render.py
+python3 -m http.server 4173 --bind 127.0.0.1 --directory build
+```
+
+En Render, configura esas mismas variables y usa el blueprint `render.yaml`. Las versiones del APK se actualizan desde la API sin reconstruir la landing.
+
+Consulta [contratos, configuración, primer administrador y despliegue](docs/INTEGRACION_MILPAGROW.md), [entrega al agente del backend](docs/ENTREGA_AGENTE_MILPAGROW.md) y [verificaciones](docs/VERIFICACIONES_SPRINT2.md).
+
+## Pruebas
+
+```bash
+npm ci
+npx playwright install chromium
+npm test
+```
+
+Las pruebas del navegador usan servicios simulados. La persistencia, autorización y validación de un APK real se verifican por separado con los emuladores Firebase en MilpaGrow; los comandos y límites están en la documentación.
