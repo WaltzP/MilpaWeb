@@ -140,7 +140,7 @@ $('#release-form').addEventListener('submit', async event => {
     // Un reintento conserva el ID; los metadatos quedan bloqueados hasta completarlo.
     for (const name of ['version', 'versionCode', 'minAndroid', 'notes']) form.elements[name].disabled = true;
     await upload(uploadId, file);
-    status($('#upload-status'), 'Carga completa en GitHub.'); status($('#release-form-status'), 'Instalador listo. Publica esta versión desde el historial para ofrecerla en la landing.');
+    status($('#upload-status'), 'Carga completa en GitHub.'); status($('#release-form-status'), 'Instalador listo. Publícalo desde el historial y márcalo como Latest en GitHub para ofrecerlo en la web.');
     uploadId = undefined; form.reset(); $('#apk-progress').value = 100;
   } catch (error) { if (active) status($('#release-form-status'), `${error.message} Los datos y el archivo seleccionado se conservan para reintentar.`, true); }
   finally {
@@ -156,15 +156,15 @@ async function loadReleases(append = false) {
   try {
     const result = await admin(`/releases${append && releaseCursor ? `?cursor=${releaseCursor}` : ''}`); if (!active || run !== generation) return;
     maxBytes = result.maxBytes; if (!append) $('#releases-list').replaceChildren();
-    $('#current-release').textContent = result.currentReleaseId ? `Versión ofrecida: ${result.currentReleaseId.replace('android-', 'código ')}` : 'Todavía no hay una versión pública.';
+    $('#current-release').textContent = result.currentReleaseId ? `Versión seleccionada: ${result.currentReleaseId.replace('android-', 'código ')}` : 'Todavía no hay una versión seleccionada.';
     for (const item of result.items) {
       const card = node('article', undefined, 'clay-card release-item'); const current = item.id === result.currentReleaseId;
-      const heading = node('div', undefined, 'admin-toolbar'); heading.append(node('h3', `MilpaGrow ${item.version}`), node('span', current ? 'Disponible en la landing' : releaseLabels[item.status] || item.status, 'state-badge')); card.append(heading);
+      const heading = node('div', undefined, 'admin-toolbar'); heading.append(node('h3', `MilpaGrow ${item.version}`), node('span', current ? 'Publicada y seleccionada' : releaseLabels[item.status] || item.status, 'state-badge')); card.append(heading);
       card.append(node('p', `Código ${item.versionCode} · ${item.sizeBytes ? formatSize(item.sizeBytes) : 'APK pendiente'} · Android ${item.minAndroid}+`), node('p', item.notes, 'release-description'));
       if (item.error) card.append(node('p', item.error, 'form-status error-text'));
       if (['uploaded', 'published'].includes(item.status) && !current) {
-        const publish = node('button', item.status === 'published' ? 'Ofrecer esta versión en la landing' : 'Publicar y ofrecer en la landing', 'button');
-        publish.addEventListener('click', async () => { publish.disabled = true; status($('#releases-status'), 'Confirmando la publicación…'); try { await admin(`/releases/${item.id}/publish`, { method: 'POST' }); await loadReleases(); status($('#releases-status'), 'Versión pública actualizada. La landing consultará esta versión automáticamente.'); } catch (error) { if (active) status($('#releases-status'), error.message, true); } finally { publish.disabled = false; } }); card.append(publish);
+        const publish = node('button', item.status === 'published' ? 'Seleccionar esta versión' : 'Publicar en GitHub', 'button');
+        publish.addEventListener('click', async () => { publish.disabled = true; status($('#releases-status'), 'Confirmando la publicación…'); try { await admin(`/releases/${item.id}/publish`, { method: 'POST' }); await loadReleases(); status($('#releases-status'), 'Versión publicada y seleccionada. Márcala como Latest en GitHub para ofrecerla en la descarga de la web.'); } catch (error) { if (active) status($('#releases-status'), error.message, true); } finally { publish.disabled = false; } }); card.append(publish);
       }
       if (['draft', 'failed'].includes(item.status) || (item.status === 'uploading' && item.leaseUntil < Date.now())) {
         const label = node('label', 'Seleccionar APK para reintentar'); const file = node('input'); file.type = 'file'; file.accept = '.apk'; label.append(file); const retry = node('button', 'Reintentar carga', 'button button-outline');

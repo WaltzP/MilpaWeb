@@ -1,4 +1,4 @@
-"""Prepara la landing con su configuración pública; la versión llega desde la API."""
+"""Prepara la landing estática; la descarga enlaza directamente a GitHub Releases."""
 
 import os
 import json
@@ -10,6 +10,14 @@ from urllib.parse import urlsplit
 
 def configuracion_publica(environ):
     api_url = environ.get("MILPAGROW_API_URL", "").strip().rstrip("/")
+    config = {
+        "apiUrl": api_url,
+        "firebaseApiKey": environ.get("MILPAGROW_FIREBASE_API_KEY", "").strip(),
+        "firebaseProjectId": environ.get("MILPAGROW_FIREBASE_PROJECT_ID", "").strip(),
+    }
+    # La descarga estática no necesita API ni Firebase. Su configuración es opcional.
+    if not any(config.values()):
+        return config
     try:
         enlace = urlsplit(api_url)
         puerto = enlace.port
@@ -28,11 +36,6 @@ def configuracion_publica(environ):
         or (puerto is not None and not 0 < puerto <= 65535)
     ):
         raise ValueError("MILPAGROW_API_URL debe terminar en /api y usar HTTPS (HTTP sólo en localhost).")
-    config = {
-        "apiUrl": api_url,
-        "firebaseApiKey": environ.get("MILPAGROW_FIREBASE_API_KEY", "").strip(),
-        "firebaseProjectId": environ.get("MILPAGROW_FIREBASE_PROJECT_ID", "").strip(),
-    }
     if not config["firebaseApiKey"] or not config["firebaseProjectId"]:
         raise ValueError("Configura MILPAGROW_FIREBASE_API_KEY y MILPAGROW_FIREBASE_PROJECT_ID del mismo proyecto que la API.")
     return config
@@ -51,7 +54,7 @@ def preparar_sitio():
     shutil.copytree(origen, destino, ignore=shutil.ignore_patterns("*.apk", "_headers"))
     serialized = json.dumps(config, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
     (destino / "config.js").write_text(f"window.MILPAGROW_CONFIG = Object.freeze({serialized});\n", encoding="utf-8")
-    print("Sitio preparado en build/. La versión pública se consultará desde la API.")
+    print("Sitio preparado en build/. Descarga directa desde GitHub Releases.")
 
 
 if __name__ == "__main__":

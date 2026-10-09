@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 const release = { id: 'android-12', version: '1.2.0', versionCode: 12, minAndroid: '7.0', notes: 'Mejoras de registro y seguimiento.', sizeBytes: 128974848, publishedAt: '2026-10-08T12:00:00Z', downloadUrl: 'https://github.com/WaltzP/MilpaWeb/releases/download/v1.2.0/MilpaGrow.apk', sha256: 'abc' };
-const initialDownloadUrl = 'https://github.com/WaltzP/MilpaWeb/releases/download/android-inicial/MilpaGrow.apk';
+const directDownloadUrl = 'https://github.com/WaltzP/MilpaWeb/releases/latest/download/MilpaGrow.apk';
 function success(route, data, status = 200) { return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: true, data }) }); }
 function failure(route, message, code, status = 503) { return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message, code } }) }); }
 async function publicApi(page, current = () => release) {
@@ -10,17 +10,15 @@ async function publicApi(page, current = () => release) {
 async function demoFields(page) {
   await page.locator('#demo-form [name=name]').fill('Ana Productora'); await page.locator('#demo-form [name=email]').fill('ana@example.test'); await page.locator('#demo-form [name=activity]').selectOption('mixta'); await page.locator('#demo-form [name=message]').fill('Quiero organizar los registros de mi finca.');
 }
-test('landing conserva interacciones, menú, temas y consulta nuevas versiones sin reconstruir', async ({ page }, info) => {
-  let current = release; await publicApi(page, () => current); await page.goto('/');
-  await expect(page.locator('.download-link')).toHaveAttribute('href', release.downloadUrl);
-  await expect(page.locator('#apk-version')).toHaveText('1.2.0'); await expect(page.locator('#apk-size')).toContainText('123');
+test('landing conserva interacciones, menú, temas y descarga directa', async ({ page }, info) => {
+  await publicApi(page); await page.goto('/');
+  await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
   await page.locator('#tab-porcino').click(); await expect(page.locator('#module-title')).toContainText('cerdos');
   await page.locator('#tab-porcino').press('ArrowRight'); await expect(page.locator('#tab-diagnostico')).toBeFocused();
   await page.locator('[data-question=finca]').click(); await expect(page.locator('#chat-answer')).toContainText('áreas productivas');
   await page.locator('.theme-toggle').click(); await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   if (info.project.name === 'mobile') { await page.locator('.menu-toggle').click(); await expect(page.locator('#mobile-nav')).toBeVisible(); await page.locator('#mobile-nav a[href="#demostracion"]').click(); await expect(page.locator('#mobile-nav')).toBeHidden(); }
-  current = { ...release, version: '1.3.0', versionCode: 13, downloadUrl: release.downloadUrl.replace('1.2.0', '1.3.0') };
-  await page.reload(); await expect(page.locator('#apk-version')).toHaveText('1.3.0'); await expect(page.locator('.download-link')).toHaveAttribute('href', current.downloadUrl);
+  await page.reload(); await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   for (const width of [320, 360, 768, 900, 1024, 1440]) {
@@ -39,68 +37,39 @@ test('demo: error conserva campos; respuesta perdida se reintenta con la misma c
   await page.locator('#demo-form [type=submit]').click(); await expect(page.locator('#demo-status')).toContainText('¡Solicitud recibida!');
   expect(keys[0]).toBe(keys[1]); expect(saved.size).toBe(1); await expect(page.locator('#demo-form [name=name]')).toHaveValue('');
 });
-test('validación del navegador y descarga disponible durante un fallo de API', async ({ page }) => {
+test('validación del navegador y descarga independiente de la API', async ({ page }) => {
   await page.route('**/api/website/release', route => failure(route, 'Servicio temporalmente no disponible.', 'WEBSITE_CONFIG'));
   await page.route('**/api/website/demo-challenge', route => success(route, { challenge: 'test', minWaitMs: 0 }));
   let submissions = 0; await page.route('**/api/website/demo-requests', route => { submissions++; return success(route, { accepted: true }, 202); });
-  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('href', initialDownloadUrl); await expect(page.locator('#release-retry')).toBeVisible();
+  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
   await demoFields(page); await page.locator('#demo-form [name=name]').fill('  '); await page.locator('#demo-form [type=submit]').click(); expect(submissions).toBe(0); await expect(page.locator('#demo-form [name=name]')).toBeFocused();
   await page.locator('#demo-form [name=name]').fill('Ana'); await page.locator('#demo-form [name=email]').fill('invalid'); await page.locator('#demo-form [type=submit]').click(); expect(submissions).toBe(0);
 });
-test('ruta de versiones 404: descarga pública, recuperación y conservación de la última versión', async ({ page }) => {
-  let mode = 'missing';
-  await page.route('**/api/website/release', route => {
-    if (mode === 'missing') return failure(route, 'No se encontró el recurso solicitado.', 'NOT_FOUND', 404);
-    if (mode === 'offline') return route.abort('failed');
-    return success(route, release);
-  });
-  await page.route('**/api/website/demo-challenge', route => success(route, { challenge: 'test', minWaitMs: 0 }));
+test('descarga un APK sin consultar la API aunque esté caída', async ({ page }) => {
+  const apiRequests = [];
+  page.on('request', request => { if (request.url().includes('/api/')) apiRequests.push(request.url()); });
+  await page.route('**/api/**', route => route.abort('failed'));
+  await page.route(directDownloadUrl, route => route.fulfill({ contentType: 'application/vnd.android.package-archive', headers: { 'Content-Disposition': 'attachment; filename="MilpaGrow.apk"' }, body: Buffer.from('Browser download fixture') }));
   await page.goto('/');
-  await expect(page.locator('.download-link')).toHaveAttribute('href', initialDownloadUrl);
+  await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
   await expect(page.locator('.download-link')).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('#apk-version')).toHaveText('1.0.0');
-  await expect(page.locator('#apk-size')).toContainText('117');
-  await expect(page.locator('#release-status')).toHaveText('MilpaGrow 1.0.0 está disponible para descargar.');
-  await expect(page.locator('#release-status')).toHaveAttribute('data-state', 'success');
-  mode = 'ready'; await page.locator('#release-retry').click();
-  await expect(page.locator('.download-link')).toHaveAttribute('href', release.downloadUrl);
-  await expect(page.locator('#apk-version')).toHaveText('1.2.0');
-  mode = 'offline'; await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  await expect(page.locator('#release-status')).toHaveText('MilpaGrow 1.2.0 está disponible para descargar.');
-  await expect(page.locator('.download-link')).toHaveAttribute('href', release.downloadUrl);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const downloaded = page.waitForEvent('download'); await page.locator('.download-link').click();
+  const file = await downloaded; expect(file.suggestedFilename()).toBe('MilpaGrow.apk'); expect(await file.failure()).toBeNull();
+  expect(apiRequests).toEqual([]);
 });
-test('la descarga está disponible mientras la consulta de versión sigue pendiente', async ({ page }) => {
-  let pending;
-  await page.route('**/api/website/release', route => { pending = route; });
-  await page.route('**/api/website/demo-challenge', route => success(route, { challenge: 'test', minWaitMs: 0 }));
-  await page.goto('/');
-  await expect(page.locator('.download-link')).toHaveAttribute('href', initialDownloadUrl);
-  await expect(page.locator('.download-link')).not.toHaveAttribute('aria-disabled', 'true');
-  await expect.poll(() => Boolean(pending)).toBeTruthy();
-  await failure(pending, 'No se encontró el recurso solicitado.', 'NOT_FOUND', 404);
-  await expect(page.locator('#release-status')).toHaveText('MilpaGrow 1.0.0 está disponible para descargar.');
-});
-test('una respuesta válida sin versión y un enlace inválido deshabilitan la descarga', async ({ page }) => {
-  let current = null; await publicApi(page, () => current); await page.goto('/');
-  await expect(page.locator('#release-status')).toContainText('primera versión');
-  await expect(page.locator('.download-link')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('.download-link')).not.toHaveAttribute('href');
-  current = { ...release, downloadUrl: 'https://example.test/releases/download/v1/MilpaGrow.apk' };
-  await page.reload();
-  await expect(page.locator('#release-status')).toContainText('No se pudo confirmar');
-  await expect(page.locator('.download-link')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('.download-link')).not.toHaveAttribute('href');
-});
-test('si la versión de respaldo tampoco es válida, muestra un error y permite reintentar', async ({ page }) => {
-  await page.route('**/android-release.js', route => route.fulfill({ contentType: 'text/javascript', body: "export const publishedAndroidRelease = { downloadUrl: 'javascript:alert(1)' };" }));
-  await page.route('**/api/website/release', route => failure(route, 'No se encontró el recurso solicitado.', 'NOT_FOUND', 404));
-  await page.route('**/api/website/demo-challenge', route => success(route, { challenge: 'test', minWaitMs: 0 }));
-  await page.goto('/');
-  await expect(page.locator('.download-link')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('.download-link')).not.toHaveAttribute('href');
-  await expect(page.locator('#release-status')).toHaveAttribute('data-state', 'error');
-  await expect(page.locator('#release-status')).toContainText('No se pudo confirmar');
-  await expect(page.locator('#release-retry')).toBeVisible();
+test('el botón descarga el instalador con JavaScript desactivado', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false, baseURL });
+  try {
+    const page = await context.newPage();
+    await page.route(directDownloadUrl, route => route.fulfill({ contentType: 'application/vnd.android.package-archive', headers: { 'Content-Disposition': 'attachment; filename="MilpaGrow.apk"' }, body: Buffer.from('Browser download fixture') }));
+    await page.goto('/'); await page.locator('#descargar').scrollIntoViewIfNeeded();
+    await expect(page.locator('.download-link')).toBeVisible();
+    await expect(page.locator('.download-copy')).toHaveCSS('opacity', '1');
+    await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
+    const downloaded = page.waitForEvent('download'); await page.locator('.download-link').click();
+    const file = await downloaded; expect(file.suggestedFilename()).toBe('MilpaGrow.apk'); expect(await file.failure()).toBeNull();
+  } finally { await context.close(); }
 });
 async function authApi(page, denied = false) {
   await page.route('**/api/auth/login', route => success(route, { challenge: 'email-challenge', email: 'admin@example.test', expiresInSeconds: 600, resendAfterSeconds: 60 }));
@@ -140,7 +109,7 @@ test('panel: listas vacías, fallo de carga y reintento de APK conservan la vers
   await page.locator('#release-form [type=submit]').click(); await expect(page.locator('#release-form-status')).toContainText('se conservan'); await expect(page.locator('#release-form [name=version]')).toHaveValue('1.2.0'); await expect(page.locator('#release-form [name=notes]')).toHaveValue(release.notes); expect(current).toBeNull();
   await page.locator('#release-form [type=submit]').click(); await expect(page.locator('#upload-status')).toContainText('Carga completa'); expect(registered).toBe(1); expect(uploaded).toBe(2);
 });
-test('administrador gestiona demo, sube archivo, publica y landing ofrece esa versión', async ({ page }, info) => {
+test('administrador gestiona demo, sube archivo y publica una versión en GitHub', async ({ page }, info) => {
   await authApi(page); let current = null; await publicApi(page, () => current);
   const demo = { id: 'demo-1', name: 'Ana <img src=x onerror=alert(1)>', email: 'ana@example.test', phone: '', activity: 'mixta', message: 'Quiero organizar mi finca.', status: 'pendiente', notes: '', revision: 0, createdAt: Date.now() };
   let versions = [], uploaded = false, patched = false;
@@ -160,11 +129,11 @@ test('administrador gestiona demo, sube archivo, publica y landing ofrece esa ve
   await page.locator('#detail-form [name=status]').selectOption('agendada'); await page.locator('#detail-form [name=notes]').fill('Demo acordada para el viernes.'); await page.locator('#detail-form [type=submit]').click(); await expect(page.locator('#detail-status')).toContainText('guardado'); expect(patched).toBeTruthy();
   await page.locator('#tab-releases').click(); await page.locator('#release-form [name=version]').fill('1.2.0'); await page.locator('#release-form [name=versionCode]').fill('12'); await page.locator('#release-form [name=notes]').fill(release.notes); await page.locator('#release-form [name=apk]').setInputFiles({ name: 'MilpaGrow.apk', mimeType: 'application/vnd.android.package-archive', buffer: Buffer.from('Browser fixture; real APK validated by backend integration test') });
   await page.locator('#release-form [type=submit]').click(); await expect(page.locator('#upload-status')).toContainText('Carga completa'); await expect(page.locator('#apk-progress')).toHaveAttribute('value', '100');
-  await page.getByRole('button', { name: 'Publicar y ofrecer en la landing', exact: true }).click(); await expect(page.locator('#releases-list')).toContainText('Disponible en la landing');
+  await page.getByRole('button', { name: 'Publicar en GitHub', exact: true }).click(); await expect(page.locator('#releases-list')).toContainText('Publicada y seleccionada');
   await page.screenshot({ path: `/tmp/milpagrow-sprint2-${info.project.name}-admin-light.png`, fullPage: true });
   await page.locator('#admin-theme').click(); await expect.poll(() => page.locator('body').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(14, 40, 24)'); await page.screenshot({ path: `/tmp/milpagrow-sprint2-${info.project.name}-admin-dark.png`, fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
-  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('href', release.downloadUrl); await expect(page.locator('#apk-version')).toHaveText('1.2.0');
+  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual(['milpagrow-theme']);
 });
 test('movimiento reducido, foco visible y formularios sin desbordamiento en ambos temas', async ({ page }, info) => {

@@ -14,9 +14,9 @@ La aplicación requiere **Android 7.0 o superior**.
 
 La página se adapta a teléfonos y computadoras, incluye un menú móvil y permite elegir entre tema claro y oscuro. Las pantallas y conversaciones mostradas son ejemplos; la gestión de la finca se realiza desde la aplicación.
 
-La web se publica en Render y consulta la versión vigente desde la API de MilpaGrow. El instalador se ofrece desde GitHub Releases mediante un enlace público, sin iniciar sesión.
+La web se publica como sitio estático en Render. El botón descarga directamente el archivo `MilpaGrow.apk` de la release marcada **Latest** en [GitHub Releases](https://github.com/WaltzP/MilpaWeb/releases). La descarga funciona sin API, Firebase, servidor Node ni JavaScript.
 
-La descarga permanece disponible si la API falla o todavía no tiene la ruta de versiones: `dist/android-release.js` contiene los metadatos de la versión pública `android-inicial`, comprobados contra el APK y GitHub. La API tiene prioridad cuando responde; durante un fallo se conserva la última versión confirmada. Una respuesta válida sin versión deshabilita la descarga. Al actualizar la versión de respaldo, comprueba su enlace público, tamaño, SHA-256 y metadatos Android antes de cambiar ese archivo.
+Para actualizar la app, crea una release en GitHub, adjunta el nuevo APK con el nombre exacto `MilpaGrow.apk`, marca **Set as latest release** y publica. El enlace permanente `/releases/latest/download/MilpaGrow.apk` ofrecerá ese archivo sin reconstruir la web. [Documentación de GitHub](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases).
 
 ## Segundo sprint
 
@@ -26,17 +26,14 @@ La descarga permanece disponible si la API falla o todavía no tiene la ruta de 
 - Carga de APK con progreso, publicación, selección de versión e historial. Los tokens de GitHub permanecen en el servidor.
 - Diseño original, menú móvil, interacciones, temas claro/oscuro y movimiento reducido conservados.
 
-La configuración pública se centraliza en `config.js`, generado durante el build. Copia `.env.example` a `.env`, configura las tres variables públicas y ejecuta:
+Para construir y abrir la página con descarga directa, ejecuta:
 
 ```bash
-set -a
-source .env
-set +a
 python3 scripts/preparar_render.py
 python3 -m http.server 4173 --bind 127.0.0.1 --directory build
 ```
 
-En Render, configura esas mismas variables y usa el blueprint `render.yaml`. Las versiones del APK se actualizan desde la API sin reconstruir la landing.
+Las demostraciones y el panel son opcionales y requieren la API de MilpaGrow. Su configuración pública se centraliza en `config.js`, generado durante el build: exporta las tres variables de `.env.example` al entorno o configúralas en Render. Para cargar un `.env` local en Bash, usa `set -a`, `source .env` y `set +a` antes de construir. La API se consulta al usar el formulario o el panel; abrir la página y descargar el APK no hace llamadas a ella.
 
 Consulta [contratos, configuración, primer administrador y despliegue](docs/INTEGRACION_MILPAGROW.md), [entrega al agente del backend](docs/ENTREGA_AGENTE_MILPAGROW.md) y [verificaciones](docs/VERIFICACIONES_SPRINT2.md).
 

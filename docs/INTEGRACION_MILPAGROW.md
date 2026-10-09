@@ -9,7 +9,7 @@ Sólo se guarda `milpagrow-theme`; la sesión administrativa vive en memoria.
 ## Estado y alcance
 
 - Implementado en MilpaWeb: CTA de demo, formulario validado, reintentos con
-  idempotencia, consulta de versión, panel con código de correo, solicitudes,
+  idempotencia, descarga directa, panel con código de correo, solicitudes,
   filtros, detalles, notas, carga con progreso, publicación e historial.
 - Implementado en la rama del backend preparada junto a esta entrega:
   `server/modules/website/*`, montaje en `server/index.js`, script de permisos,
@@ -28,16 +28,20 @@ Sólo se guarda `milpagrow-theme`; la sesión administrativa vive en memoria.
 cerrada de variables públicas. Todos los módulos usan `website-api.js` para
 resolver la misma URL base. La URL debe incluir `/api`; las rutas de las tablas
 son relativas a ella. HTTPS es obligatorio salvo localhost/127.0.0.1.
-La página consulta la versión al abrirse, al volver a la pestaña y cada cinco
-minutos mientras está visible. Publicar otra APK **no requiere reconstruir**
-MilpaWeb. Cambiar la URL o proyecto de Firebase sí requiere regenerar config.js.
+La configuración de API y Firebase es opcional para la página estática; sólo
+se necesita para demostraciones y administración. Cambiar la URL o proyecto de
+Firebase requiere regenerar config.js. El desafío del formulario se consulta
+al enfocarlo, no al abrir la landing.
 
-La descarga tiene un respaldo verificado en `dist/android-release.js`: el APK
-público `android-inicial` de GitHub. Se ofrece mientras se consulta la API y se
-conserva la última versión confirmada si la consulta devuelve 404, un error de
-servidor o falla la conexión. Una versión válida de la API tiene prioridad;
-una respuesta exitosa con `null` deshabilita la descarga. El respaldo no publica
-registros en Firestore ni habilita las rutas administrativas o de demostración.
+La descarga es un enlace HTML permanente a
+`https://github.com/WaltzP/MilpaWeb/releases/latest/download/MilpaGrow.apk`.
+Funciona sin JavaScript y no consulta `/website/release`. Para actualizarla,
+adjunta un archivo con el nombre exacto `MilpaGrow.apk` a una release pública,
+marca **Set as latest release** y publica. No requiere reconstruir MilpaWeb.
+Los metadatos de versión, fecha y tamaño no se muestran en la landing porque
+el archivo puede cambiar sin desplegarla. La administración puede publicar en
+GitHub mediante la API; como ese flujo no cambia la etiqueta Latest, hay que
+marcarla manualmente en GitHub para ofrecer esa versión en la descarga directa.
 
 | Variable pública (MilpaWeb) | Uso |
 | --- | --- |
@@ -98,8 +102,8 @@ configuración ficticia y no necesitan credenciales reales.
    al servidor de 10 minutos, GitHub de 10 minutos y navegador de 15 minutos.
    La API escribe un temporal con permisos 0600 y lo elimina al terminar.
 7. Habilitar el primer administrador y publicar un instalador desde el panel.
-   Antes de esa publicación, `/website/release` devuelve `null` y la descarga
-   permanece deshabilitada con una explicación visible.
+   Antes de esa publicación, `/website/release` devuelve `null`. La descarga
+   directa sigue ofreciendo la release pública marcada Latest en GitHub.
 
 El HTML del panel se sirve públicamente para mostrar el inicio de sesión; los
 datos y cada operación están protegidos en el backend. Recargar o cerrar la
@@ -310,7 +314,8 @@ de ejecutarlo. No crear un endpoint público que asigne este permiso.
 ## Comprobación después de desplegar
 
 1. Abrir landing en celular/escritorio, temas claro/oscuro; probar menú, pestañas,
-   ejemplos de Milpi, teclado y movimiento reducido.
+   ejemplos de Milpi, teclado y movimiento reducido. Descargar también con
+   JavaScript desactivado y la API caída; abrir la página no debe consultar la API.
 2. Sin cuenta, enviar una demo válida. Confirmar que aparece en Firestore y luego
    se muestra la confirmación. Simular desconexión: campos intactos, botón activo
    para reintentar y una sola solicitud en el servidor.
@@ -323,8 +328,8 @@ de ejecutarlo. No crear un endpoint público que asigne este permiso.
 5. Subir un APK real con sus metadatos. Observar progreso y resultado. Comprobar
    que aparece como listo para publicar y aún no modifica la descarga pública.
 6. Publicar desde el historial. Abrir GET `/api/website/release` sin token y
-   comprobar versión, fecha, bytes, requisito y enlace. Abrir la landing en una
-   nueva pestaña y descargar ese APK sin iniciar sesión.
+   comprobar versión, fecha, bytes, requisito y enlace. Marcar esa release como
+   Latest en GitHub; abrir la landing y descargar el APK sin iniciar sesión.
 7. Subir un archivo inválido o provocar error de GitHub: la versión anterior
    permanece. Publicar una segunda versión y seleccionar la anterior; ambas
    siguen en el historial.

@@ -8,6 +8,9 @@ spec.loader.exec_module(build)
 
 
 class BuildConfiguration(unittest.TestCase):
+    def test_static_download_needs_no_api_configuration(self):
+        self.assertFalse(any(build.configuracion_publica({}).values()))
+
     def test_public_whitelist_and_urls(self):
         values = {"MILPAGROW_API_URL": "https://api.example.com/api/", "MILPAGROW_FIREBASE_API_KEY": "public-key", "MILPAGROW_FIREBASE_PROJECT_ID": "demo", "GITHUB_RELEASE_TOKEN": "must-not-appear", "WEBSITE_SPAM_SECRET": "must-not-appear"}
         self.assertEqual(build.configuracion_publica(values), {"apiUrl": "https://api.example.com/api", "firebaseApiKey": "public-key", "firebaseProjectId": "demo"})
