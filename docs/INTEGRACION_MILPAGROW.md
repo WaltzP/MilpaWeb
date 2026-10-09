@@ -32,6 +32,13 @@ La página consulta la versión al abrirse, al volver a la pestaña y cada cinco
 minutos mientras está visible. Publicar otra APK **no requiere reconstruir**
 MilpaWeb. Cambiar la URL o proyecto de Firebase sí requiere regenerar config.js.
 
+La descarga tiene un respaldo verificado en `dist/android-release.js`: el APK
+público `android-inicial` de GitHub. Se ofrece mientras se consulta la API y se
+conserva la última versión confirmada si la consulta devuelve 404, un error de
+servidor o falla la conexión. Una versión válida de la API tiene prioridad;
+una respuesta exitosa con `null` deshabilita la descarga. El respaldo no publica
+registros en Firestore ni habilita las rutas administrativas o de demostración.
+
 | Variable pública (MilpaWeb) | Uso |
 | --- | --- |
 | `MILPAGROW_API_URL` | Ej.: `http://localhost:3000/api` o `https://api.example.com/api` |

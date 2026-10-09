@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 const release = { id: 'android-12', version: '1.2.0', versionCode: 12, minAndroid: '7.0', notes: 'Mejoras de registro y seguimiento.', sizeBytes: 128974848, publishedAt: '2026-10-08T12:00:00Z', downloadUrl: 'https://github.com/WaltzP/MilpaWeb/releases/download/v1.2.0/MilpaGrow.apk', sha256: 'abc' };
+const initialDownloadUrl = 'https://github.com/WaltzP/MilpaWeb/releases/download/android-inicial/MilpaGrow.apk';
 function success(route, data, status = 200) { return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: true, data }) }); }
 function failure(route, message, code, status = 503) { return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message, code } }) }); }
 async function publicApi(page, current = () => release) {
@@ -38,13 +39,68 @@ test('demo: error conserva campos; respuesta perdida se reintenta con la misma c
   await page.locator('#demo-form [type=submit]').click(); await expect(page.locator('#demo-status')).toContainText('¡Solicitud recibida!');
   expect(keys[0]).toBe(keys[1]); expect(saved.size).toBe(1); await expect(page.locator('#demo-form [name=name]')).toHaveValue('');
 });
-test('validación del navegador y error al consultar descarga', async ({ page }) => {
+test('validación del navegador y descarga disponible durante un fallo de API', async ({ page }) => {
   await page.route('**/api/website/release', route => failure(route, 'Servicio temporalmente no disponible.', 'WEBSITE_CONFIG'));
   await page.route('**/api/website/demo-challenge', route => success(route, { challenge: 'test', minWaitMs: 0 }));
   let submissions = 0; await page.route('**/api/website/demo-requests', route => { submissions++; return success(route, { accepted: true }, 202); });
-  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('aria-disabled', 'true'); await expect(page.locator('#release-retry')).toBeVisible();
+  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('href', initialDownloadUrl); await expect(page.locator('#release-retry')).toBeVisible();
   await demoFields(page); await page.locator('#demo-form [name=name]').fill('  '); await page.locator('#demo-form [type=submit]').click(); expect(submissions).toBe(0); await expect(page.locator('#demo-form [name=name]')).toBeFocused();
   await page.locator('#demo-form [name=name]').fill('Ana'); await page.locator('#demo-form [name=email]').fill('invalid'); await page.locator('#demo-form [type=submit]').click(); expect(submissions).toBe(0);
+});
+test('ruta de versiones 404: descarga pública, recuperación y conservación de la última versión', async ({ page }) => {
+  let mode = 'missing';
+  await page.route('**/api/website/release', route => {
+    if (mode === 'missing') return failure(route, 'No se encontró el recurso solicitado.', 'NOT_FOUND', 404);
+    if (mode === 'offline') return route.abort('failed');
+    return success(route, release);
+  });
+  await page.route('**/api/website/demo-challenge', route => success(route, { challenge: 'test', minWaitMs: 0 }));
+  await page.goto('/');
+  await expect(page.locator('.download-link')).toHaveAttribute('href', initialDownloadUrl);
+  await expect(page.locator('.download-link')).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(page.locator('#apk-version')).toHaveText('1.0.0');
+  await expect(page.locator('#apk-size')).toContainText('117');
+  await expect(page.locator('#release-status')).toHaveText('MilpaGrow 1.0.0 está disponible para descargar.');
+  await expect(page.locator('#release-status')).toHaveAttribute('data-state', 'success');
+  mode = 'ready'; await page.locator('#release-retry').click();
+  await expect(page.locator('.download-link')).toHaveAttribute('href', release.downloadUrl);
+  await expect(page.locator('#apk-version')).toHaveText('1.2.0');
+  mode = 'offline'; await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('#release-status')).toHaveText('MilpaGrow 1.2.0 está disponible para descargar.');
+  await expect(page.locator('.download-link')).toHaveAttribute('href', release.downloadUrl);
+});
+test('la descarga está disponible mientras la consulta de versión sigue pendiente', async ({ page }) => {
+  let pending;
+  await page.route('**/api/website/release', route => { pending = route; });
+  await page.route('**/api/website/demo-challenge', route => success(route, { challenge: 'test', minWaitMs: 0 }));
+  await page.goto('/');
+  await expect(page.locator('.download-link')).toHaveAttribute('href', initialDownloadUrl);
+  await expect(page.locator('.download-link')).not.toHaveAttribute('aria-disabled', 'true');
+  await expect.poll(() => Boolean(pending)).toBeTruthy();
+  await failure(pending, 'No se encontró el recurso solicitado.', 'NOT_FOUND', 404);
+  await expect(page.locator('#release-status')).toHaveText('MilpaGrow 1.0.0 está disponible para descargar.');
+});
+test('una respuesta válida sin versión y un enlace inválido deshabilitan la descarga', async ({ page }) => {
+  let current = null; await publicApi(page, () => current); await page.goto('/');
+  await expect(page.locator('#release-status')).toContainText('primera versión');
+  await expect(page.locator('.download-link')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.locator('.download-link')).not.toHaveAttribute('href');
+  current = { ...release, downloadUrl: 'https://example.test/releases/download/v1/MilpaGrow.apk' };
+  await page.reload();
+  await expect(page.locator('#release-status')).toContainText('No se pudo confirmar');
+  await expect(page.locator('.download-link')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.locator('.download-link')).not.toHaveAttribute('href');
+});
+test('si la versión de respaldo tampoco es válida, muestra un error y permite reintentar', async ({ page }) => {
+  await page.route('**/android-release.js', route => route.fulfill({ contentType: 'text/javascript', body: "export const publishedAndroidRelease = { downloadUrl: 'javascript:alert(1)' };" }));
+  await page.route('**/api/website/release', route => failure(route, 'No se encontró el recurso solicitado.', 'NOT_FOUND', 404));
+  await page.route('**/api/website/demo-challenge', route => success(route, { challenge: 'test', minWaitMs: 0 }));
+  await page.goto('/');
+  await expect(page.locator('.download-link')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.locator('.download-link')).not.toHaveAttribute('href');
+  await expect(page.locator('#release-status')).toHaveAttribute('data-state', 'error');
+  await expect(page.locator('#release-status')).toContainText('No se pudo confirmar');
+  await expect(page.locator('#release-retry')).toBeVisible();
 });
 async function authApi(page, denied = false) {
   await page.route('**/api/auth/login', route => success(route, { challenge: 'email-challenge', email: 'admin@example.test', expiresInSeconds: 600, resendAfterSeconds: 60 }));

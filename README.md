@@ -16,6 +16,8 @@ La página se adapta a teléfonos y computadoras, incluye un menú móvil y perm
 
 La web se publica en Render y consulta la versión vigente desde la API de MilpaGrow. El instalador se ofrece desde GitHub Releases mediante un enlace público, sin iniciar sesión.
 
+La descarga permanece disponible si la API falla o todavía no tiene la ruta de versiones: `dist/android-release.js` contiene los metadatos de la versión pública `android-inicial`, comprobados contra el APK y GitHub. La API tiene prioridad cuando responde; durante un fallo se conserva la última versión confirmada. Una respuesta válida sin versión deshabilita la descarga. Al actualizar la versión de respaldo, comprueba su enlace público, tamaño, SHA-256 y metadatos Android antes de cambiar ese archivo.
+
 ## Segundo sprint
 
 - Solicitud de demostración sin cuenta, con validación, confirmación después de guardar y reintentos sin duplicados.
