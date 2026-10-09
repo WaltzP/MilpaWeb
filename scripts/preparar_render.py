@@ -66,7 +66,7 @@ def preparar_sitio():
     shutil.copytree(origen, destino, ignore=shutil.ignore_patterns("*.apk", "_headers"))
     serialized = json.dumps(config, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
     (destino / "config.js").write_text(f"window.MILPAGROW_CONFIG = Object.freeze({serialized});\n", encoding="utf-8")
-    print("Sitio preparado en build/. Acceso con cuenta antes de descargar desde GitHub Releases.")
+    print("Sitio preparado en build/. Descarga protegida con cuenta y código por correo.")
 
 
 if __name__ == "__main__":

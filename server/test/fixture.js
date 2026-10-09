@@ -4,7 +4,18 @@ export function fixture() {
   const documents = new Map(), users = new Map(), codes = [], updates = [], tokens = new Map(), verifications = [];
   let clock = 1800000000000, tail = Promise.resolve(), counter = 0, mailError;
   const db = {
-    collection: collection => ({ doc: id => ({ path: `${collection}/${id}` }) }),
+    collection: collection => {
+      const snapshot = (path, value) => ({ id: path.split('/').at(-1), exists: value !== undefined, data: () => structuredClone(value) });
+      const query = (cursor, limit = Infinity) => ({
+        startAfter: document => query(document.id, limit), limit: value => query(cursor, value),
+        get: async () => {
+          let items = [...documents].filter(([key]) => key.startsWith(`${collection}/`)).sort((a, b) => b[1].createdAt - a[1].createdAt || a[0].localeCompare(b[0]));
+          if (cursor) items = items.slice(items.findIndex(([key]) => key.endsWith(`/${cursor}`)) + 1);
+          return { docs: items.slice(0, limit).map(([key, value]) => snapshot(key, value)) };
+        },
+      });
+      return { doc: id => ({ id, path: `${collection}/${id}`, get: async () => snapshot(`${collection}/${id}`, documents.get(`${collection}/${id}`)) }), orderBy: () => query() };
+    },
     runTransaction(action) {
       const task = tail.then(async () => {
         const pending = new Map();
@@ -37,5 +48,6 @@ export function fixture() {
     advance: milliseconds => { clock += milliseconds; }, failMail: error => { mailError = error; },
     values: { email: 'Ana@Example.test', password: 'ValidPassword123', confirmPassword: 'ValidPassword123' },
     record: () => [...documents.entries()].find(([key]) => key.startsWith('websiteRegistrationChallenges/'))?.[1],
+    registered: uid => documents.get(`websiteRegisteredUsers/${Buffer.from(uid).toString('base64url')}`),
   };
 }

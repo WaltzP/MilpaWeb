@@ -1,8 +1,9 @@
 # Integración MilpaWeb ↔ MilpaGrow · Sprint 2
 
 > El recorrido de descarga y la configuración de acceso se actualizaron después
-> de este sprint: ahora se exige una cuenta y un código de correo antes de
-> mostrar el botón del APK. Consulta [ACCESO_DESCARGA.md](ACCESO_DESCARGA.md).
+> de este sprint: ahora se exige una cuenta y un código de correo para recibir
+> el APK desde un servicio protegido, con usuarios e historial en Firestore.
+> Consulta [ACCESO_DESCARGA.md](ACCESO_DESCARGA.md).
 > Los contratos de demostraciones y administración de este documento se conservan.
 
 MilpaWeb conserva la landing estática y añade una demo pública y un panel en

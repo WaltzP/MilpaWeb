@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-const apk = 'https://github.com/WaltzP/MilpaWeb/releases/latest/download/MilpaGrow.apk';
+const grant = 'a'.repeat(43);
+const apk = `http://127.0.0.1:3001/api/registration/download/${grant}`;
 const account = { uid: 'same-app-uid', email: 'ana@example.test', emailVerified: true };
 const code = { challenge: 'test-email-challenge', email: account.email, expiresInSeconds: 600, resendAfterSeconds: 60 };
 function success(route, data) { return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true, data }) }); }
@@ -19,6 +20,10 @@ async function services(page) {
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ idToken: `header.${payload}.signature`, refreshToken: 'private-refresh', expiresIn: '3600' }) });
   });
   await page.route('**/api/registration/session', route => { calls.session++; expect(route.request().headers().authorization).toContain('Bearer header.'); return success(route, account); });
+  await page.route('**/api/registration/download-grant', route => {
+    expect(route.request().method()).toBe('POST'); expect(route.request().headers().authorization).toContain('Bearer header.');
+    return success(route, { grant, expiresInSeconds: 120 });
+  });
   await page.route(apk, route => route.fulfill({ contentType: 'application/vnd.android.package-archive', headers: { 'Content-Disposition': 'attachment; filename="MilpaGrow.apk"' }, body: Buffer.from('Download browser fixture') }));
   return calls;
 }
@@ -46,9 +51,29 @@ test('cuenta web: registra, verifica y conserva el instalador y las preguntas de
   expect(calls.register).toBe(1); expect(calls.login).toBe(0); await expect(page.locator('#register-password')).toHaveValue(''); await expect(page.locator('#register-confirm')).toHaveValue('');
   await expect(page.locator('#code-description')).toContainText('Confirma tu registro'); await confirm(page);
   await expect(page.locator('#access-ready')).toContainText('completar tu perfil'); await expect(page.locator('#access-email')).toHaveText(account.email);
-  await expect(page.locator('#verified-download')).toHaveAttribute('href', apk);
+  await expect(page.locator('#verified-download')).not.toHaveAttribute('href');
+  expect(await page.content()).not.toContain('releases/latest/download');
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]); expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual([]);
   await page.locator('#access-logout').click(); await expect(page.locator('#access-login')).toBeVisible(); await expect(page.locator('#verified-download')).toBeHidden();
+});
+test('un permiso denegado no descarga la APK y permite reintentar', async ({ page }) => {
+  await services(page); let attempts = 0, downloads = 0;
+  page.on('download', () => downloads++);
+  await page.route('**/api/registration/download-grant', route => ++attempts === 1
+    ? failure(route, 'Confirma nuevamente el código de tu correo.', 'MFA_REQUIRED', 403)
+    : success(route, { grant, expiresInSeconds: 120 }));
+  await start(page, true); await confirm(page); await page.locator('#verified-download').click();
+  await expect(page.locator('#access-status')).toContainText('Confirma nuevamente'); expect(downloads).toBe(0);
+  const download = page.waitForEvent('download'); await page.locator('#verified-download').click();
+  expect((await download).suggestedFilename()).toBe('MilpaGrow.apk');
+});
+test('cerrar sesión descarta una autorización de descarga que aún está pendiente', async ({ page }) => {
+  await services(page); let held, downloads = 0; page.on('download', () => downloads++);
+  await page.route('**/api/registration/download-grant', route => { held = route; });
+  await start(page); await confirm(page); await page.locator('#verified-download').click();
+  await expect.poll(() => Boolean(held)).toBeTruthy(); await page.locator('#access-logout').click();
+  await success(held, { grant, expiresInSeconds: 120 }); await expect(page.locator('#access-login')).toBeVisible();
+  expect(downloads).toBe(0); await expect(page.locator('#verified-download')).toBeHidden();
 });
 test('código incorrecto y vencido no permiten descargar; se puede corregir', async ({ page }) => {
   await services(page); await start(page); await confirm(page, '000000');

@@ -14,7 +14,7 @@
       <a class="access-brand" href="index.html"><img src="assets/logo-milpagrow.png" alt="MilpaGrow" width="210" height="64"></a>
       <span class="section-label">TU CUENTA, EN LA WEB Y EN LA APP</span>
       <h1 id="access-title">Comienza con MilpaGrow.</h1>
-      <p id="access-intro">Inicia sesión o crea tu cuenta para descargar la app. Si ya usas MilpaGrow, entra con el mismo correo y contraseña.</p>
+      <p id="access-intro">Para descargar, necesitas una cuenta y verificar tu acceso en dos pasos: contraseña y código por correo. Si ya usas MilpaGrow, entra con tu cuenta de la app.</p>
       <div class="access-tabs" id="access-tabs" aria-label="Elige cómo acceder">
         <button type="button" id="choose-login" aria-pressed="true">Iniciar sesión</button><button type="button" id="choose-register" aria-pressed="false">Crear cuenta</button>
       </div>
@@ -29,7 +29,7 @@
         <label for="register-password">Contraseña<span class="access-password"><input id="register-password" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" aria-describedby="register-rules" required><button type="button" data-password="register-password" aria-label="Mostrar contraseña">Mostrar</button></span></label>
         <p class="field-hint" id="register-rules">De 8 a 128 caracteres, al menos una mayúscula y un número.</p>
         <label for="register-confirm">Confirmar contraseña<span class="access-password"><input id="register-confirm" name="confirmPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required><button type="button" data-password="register-confirm" aria-label="Mostrar confirmación de contraseña">Mostrar</button></span></label>
-        <p class="privacy-note">Verificaremos tu correo con un código de seis dígitos. En la app completarás los datos de tu perfil y tu finca.</p>
+        <p class="privacy-note">Verificaremos tu correo con un código de seis dígitos. Guardamos tu cuenta y el historial de descargas para controlar el acceso a MilpaGrow. En la app completarás tu perfil y tu finca.</p>
         <button class="button access-primary" type="submit">Crear cuenta</button>
       </form>
       <form class="form-card access-form" id="access-code" novalidate hidden>
@@ -48,7 +48,7 @@
       <div class="access-ready" id="access-ready" hidden>
         <div class="access-check" aria-hidden="true">✓</div><h2>Tu cuenta está lista.</h2>
         <p id="access-email"></p><p>Descarga la app e inicia sesión con este mismo correo y contraseña. Allí podrás completar tu perfil y los datos de tu finca.</p>
-        <a class="button access-primary" id="verified-download" href="https://github.com/WaltzP/MilpaWeb/releases/latest/download/MilpaGrow.apk"><svg class="access-download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg>Descargar MilpaGrow para Android</a>
+        <button class="button access-primary" id="verified-download" type="button"><svg class="access-download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg>Descargar MilpaGrow para Android</button>
         <p class="field-hint">APK · Android 7.0 o superior</p><button class="text-link" id="access-logout" type="button">Cerrar sesión</button>
       </div>
       <p class="form-status" id="access-status" role="status" aria-live="polite" tabindex="-1"></p>
