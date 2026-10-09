@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "python3 -m unittest discover -s tests -p 'test_*.py' && playwright test",
+    "test": "python3 -m unittest discover -s tests -p 'test_*.py' && npm test --prefix server && playwright test",
+    "test:server": "npm test --prefix server",
     "test:browser": "playwright test",
     "preview": "python3 -m http.server 4173 --bind 127.0.0.1 --directory build"
   },

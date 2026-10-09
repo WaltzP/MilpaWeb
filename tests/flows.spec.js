@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 const release = { id: 'android-12', version: '1.2.0', versionCode: 12, minAndroid: '7.0', notes: 'Mejoras de registro y seguimiento.', sizeBytes: 128974848, publishedAt: '2026-10-08T12:00:00Z', downloadUrl: 'https://github.com/WaltzP/MilpaWeb/releases/download/v1.2.0/MilpaGrow.apk', sha256: 'abc' };
-const directDownloadUrl = 'https://github.com/WaltzP/MilpaWeb/releases/latest/download/MilpaGrow.apk';
 function success(route, data, status = 200) { return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: true, data }) }); }
 function failure(route, message, code, status = 503) { return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message, code } }) }); }
 async function publicApi(page, current = () => release) {
@@ -10,15 +9,15 @@ async function publicApi(page, current = () => release) {
 async function demoFields(page) {
   await page.locator('#demo-form [name=name]').fill('Ana Productora'); await page.locator('#demo-form [name=email]').fill('ana@example.test'); await page.locator('#demo-form [name=activity]').selectOption('mixta'); await page.locator('#demo-form [name=message]').fill('Quiero organizar los registros de mi finca.');
 }
-test('landing conserva interacciones, menú, temas y descarga directa', async ({ page }, info) => {
+test('landing conserva interacciones, menú, temas y acceso antes de descargar', async ({ page }, info) => {
   await publicApi(page); await page.goto('/');
-  await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
+  await expect(page.locator('.download-link')).toHaveAttribute('href', 'acceso.html');
   await page.locator('#tab-porcino').click(); await expect(page.locator('#module-title')).toContainText('cerdos');
   await page.locator('#tab-porcino').press('ArrowRight'); await expect(page.locator('#tab-diagnostico')).toBeFocused();
   await page.locator('[data-question=finca]').click(); await expect(page.locator('#chat-answer')).toContainText('áreas productivas');
   await page.locator('.theme-toggle').click(); await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   if (info.project.name === 'mobile') { await page.locator('.menu-toggle').click(); await expect(page.locator('#mobile-nav')).toBeVisible(); await page.locator('#mobile-nav a[href="#demostracion"]').click(); await expect(page.locator('#mobile-nav')).toBeHidden(); }
-  await page.reload(); await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
+  await page.reload(); await expect(page.locator('.download-link')).toHaveAttribute('href', 'acceso.html');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   for (const width of [320, 360, 768, 900, 1024, 1440]) {
@@ -37,38 +36,34 @@ test('demo: error conserva campos; respuesta perdida se reintenta con la misma c
   await page.locator('#demo-form [type=submit]').click(); await expect(page.locator('#demo-status')).toContainText('¡Solicitud recibida!');
   expect(keys[0]).toBe(keys[1]); expect(saved.size).toBe(1); await expect(page.locator('#demo-form [name=name]')).toHaveValue('');
 });
-test('validación del navegador y descarga independiente de la API', async ({ page }) => {
+test('validación del navegador y enlace a la cuenta ante fallo de la API', async ({ page }) => {
   await page.route('**/api/website/release', route => failure(route, 'Servicio temporalmente no disponible.', 'WEBSITE_CONFIG'));
   await page.route('**/api/website/demo-challenge', route => success(route, { challenge: 'test', minWaitMs: 0 }));
   let submissions = 0; await page.route('**/api/website/demo-requests', route => { submissions++; return success(route, { accepted: true }, 202); });
-  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
+  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('href', 'acceso.html');
   await demoFields(page); await page.locator('#demo-form [name=name]').fill('  '); await page.locator('#demo-form [type=submit]').click(); expect(submissions).toBe(0); await expect(page.locator('#demo-form [name=name]')).toBeFocused();
   await page.locator('#demo-form [name=name]').fill('Ana'); await page.locator('#demo-form [name=email]').fill('invalid'); await page.locator('#demo-form [type=submit]').click(); expect(submissions).toBe(0);
 });
-test('descarga un APK sin consultar la API aunque esté caída', async ({ page }) => {
+test('si la API falla se conserva la landing y no se omite la verificación', async ({ page }) => {
   const apiRequests = [];
   page.on('request', request => { if (request.url().includes('/api/')) apiRequests.push(request.url()); });
   await page.route('**/api/**', route => route.abort('failed'));
-  await page.route(directDownloadUrl, route => route.fulfill({ contentType: 'application/vnd.android.package-archive', headers: { 'Content-Disposition': 'attachment; filename="MilpaGrow.apk"' }, body: Buffer.from('Browser download fixture') }));
   await page.goto('/');
-  await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
-  await expect(page.locator('.download-link')).not.toHaveAttribute('aria-disabled', 'true');
-  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  const downloaded = page.waitForEvent('download'); await page.locator('.download-link').click();
-  const file = await downloaded; expect(file.suggestedFilename()).toBe('MilpaGrow.apk'); expect(await file.failure()).toBeNull();
+  await expect(page.locator('.download-link')).toHaveAttribute('href', 'acceso.html');
   expect(apiRequests).toEqual([]);
+  await page.locator('.download-link').click(); await expect(page).toHaveURL(/acceso.html$/);
+  await expect(page.locator('#verified-download')).toBeHidden();
+  await page.locator('#login-email').fill('ana@example.test'); await page.locator('#login-password').fill('Password123');
+  await page.locator('#access-login [type=submit]').click(); await expect(page.locator('#access-status')).toContainText('No se pudo conectar');
+  await expect(page.locator('#verified-download')).toBeHidden(); await expect(page.locator('#access-login [type=submit]')).toBeEnabled();
 });
-test('el botón descarga el instalador con JavaScript desactivado', async ({ browser, baseURL }) => {
+test('sin JavaScript el botón dirige al acceso y explica cómo habilitar la verificación', async ({ browser, baseURL }) => {
   const context = await browser.newContext({ javaScriptEnabled: false, baseURL });
   try {
-    const page = await context.newPage();
-    await page.route(directDownloadUrl, route => route.fulfill({ contentType: 'application/vnd.android.package-archive', headers: { 'Content-Disposition': 'attachment; filename="MilpaGrow.apk"' }, body: Buffer.from('Browser download fixture') }));
-    await page.goto('/'); await page.locator('#descargar').scrollIntoViewIfNeeded();
-    await expect(page.locator('.download-link')).toBeVisible();
-    await expect(page.locator('.download-copy')).toHaveCSS('opacity', '1');
-    await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
-    const downloaded = page.waitForEvent('download'); await page.locator('.download-link').click();
-    const file = await downloaded; expect(file.suggestedFilename()).toBe('MilpaGrow.apk'); expect(await file.failure()).toBeNull();
+    const page = await context.newPage(); await page.goto('/'); await page.locator('#descargar').scrollIntoViewIfNeeded();
+    await expect(page.locator('.download-link')).toBeVisible(); await expect(page.locator('.download-copy')).toHaveCSS('opacity', '1');
+    await page.locator('.download-link').click(); await expect(page).toHaveURL(/acceso.html$/);
+    await expect(page.locator('noscript p')).toContainText('Activa JavaScript'); await expect(page.locator('#verified-download')).toBeHidden();
   } finally { await context.close(); }
 });
 async function authApi(page, denied = false) {
@@ -133,7 +128,7 @@ test('administrador gestiona demo, sube archivo y publica una versión en GitHub
   await page.screenshot({ path: `/tmp/milpagrow-sprint2-${info.project.name}-admin-light.png`, fullPage: true });
   await page.locator('#admin-theme').click(); await expect.poll(() => page.locator('body').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(14, 40, 24)'); await page.screenshot({ path: `/tmp/milpagrow-sprint2-${info.project.name}-admin-dark.png`, fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
-  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('href', directDownloadUrl);
+  await page.goto('/'); await expect(page.locator('.download-link')).toHaveAttribute('href', 'acceso.html');
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual(['milpagrow-theme']);
 });
 test('movimiento reducido, foco visible y formularios sin desbordamiento en ambos temas', async ({ page }, info) => {

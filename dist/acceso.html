@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#F5F3EE"><meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex"><title>Tu cuenta · MilpaGrow</title>
+  <link rel="icon" href="assets/icono-milpagrow.png"><link rel="stylesheet" href="milpagrow.css"><link rel="stylesheet" href="acceso.css">
+  <script src="config.js"></script><script type="module" src="acceso.js"></script>
+</head>
+<body>
+  <header class="access-header"><a href="index.html#descargar" class="text-link">← Volver a la web</a><button class="text-link" id="access-theme" type="button">Tema oscuro</button></header>
+  <main class="access-main">
+    <section class="access-card" aria-labelledby="access-title">
+      <a class="access-brand" href="index.html"><img src="assets/logo-milpagrow.png" alt="MilpaGrow" width="210" height="64"></a>
+      <span class="section-label">TU CUENTA, EN LA WEB Y EN LA APP</span>
+      <h1 id="access-title">Comienza con MilpaGrow.</h1>
+      <p id="access-intro">Inicia sesión o crea tu cuenta para descargar la app. Si ya usas MilpaGrow, entra con el mismo correo y contraseña.</p>
+      <div class="access-tabs" id="access-tabs" aria-label="Elige cómo acceder">
+        <button type="button" id="choose-login" aria-pressed="true">Iniciar sesión</button><button type="button" id="choose-register" aria-pressed="false">Crear cuenta</button>
+      </div>
+      <form class="form-card access-form" id="access-login" novalidate>
+        <label for="login-email">Correo electrónico<input id="login-email" name="email" type="email" maxlength="254" autocomplete="username" required></label>
+        <label for="login-password">Contraseña<span class="access-password"><input id="login-password" name="password" type="password" maxlength="128" autocomplete="current-password" required><button type="button" data-password="login-password" aria-label="Mostrar contraseña">Mostrar</button></span></label>
+        <button class="text-link access-forgot" id="choose-recovery" type="button">¿Olvidaste tu contraseña?</button>
+        <button class="button access-primary" type="submit">Iniciar sesión</button>
+      </form>
+      <form class="form-card access-form" id="access-register" novalidate hidden>
+        <label for="register-email">Correo electrónico<input id="register-email" name="email" type="email" maxlength="254" autocomplete="username" required></label>
+        <label for="register-password">Contraseña<span class="access-password"><input id="register-password" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" aria-describedby="register-rules" required><button type="button" data-password="register-password" aria-label="Mostrar contraseña">Mostrar</button></span></label>
+        <p class="field-hint" id="register-rules">De 8 a 128 caracteres, al menos una mayúscula y un número.</p>
+        <label for="register-confirm">Confirmar contraseña<span class="access-password"><input id="register-confirm" name="confirmPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required><button type="button" data-password="register-confirm" aria-label="Mostrar confirmación de contraseña">Mostrar</button></span></label>
+        <p class="privacy-note">Verificaremos tu correo con un código de seis dígitos. En la app completarás los datos de tu perfil y tu finca.</p>
+        <button class="button access-primary" type="submit">Crear cuenta</button>
+      </form>
+      <form class="form-card access-form" id="access-code" novalidate hidden>
+        <p id="code-description"></p>
+        <label for="access-code-input">Código de verificación<input id="access-code-input" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required aria-describedby="code-expiry"></label>
+        <p class="field-hint" id="code-expiry">El código vence en 10 minutos. Revisa también la carpeta de spam.</p>
+        <button class="button access-primary" type="submit">Verificar y continuar</button>
+        <div class="access-code-actions"><button class="text-link" id="access-resend" type="button" disabled>Reenviar código</button><button class="text-link" id="access-restart" type="button">Cambiar cuenta</button></div>
+      </form>
+      <form class="form-card access-form" id="access-recovery" novalidate hidden>
+        <p>Te enviaremos un enlace al correo para cambiar tu contraseña.</p>
+        <label for="recovery-email">Correo electrónico<input id="recovery-email" name="email" type="email" maxlength="254" autocomplete="username" required></label>
+        <button class="button access-primary" type="submit">Enviar enlace de recuperación</button>
+        <button class="text-link" id="recovery-back" type="button">Volver a iniciar sesión</button>
+      </form>
+      <div class="access-ready" id="access-ready" hidden>
+        <div class="access-check" aria-hidden="true">✓</div><h2>Tu cuenta está lista.</h2>
+        <p id="access-email"></p><p>Descarga la app e inicia sesión con este mismo correo y contraseña. Allí podrás completar tu perfil y los datos de tu finca.</p>
+        <a class="button access-primary" id="verified-download" href="https://github.com/WaltzP/MilpaWeb/releases/latest/download/MilpaGrow.apk"><svg class="access-download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg>Descargar MilpaGrow para Android</a>
+        <p class="field-hint">APK · Android 7.0 o superior</p><button class="text-link" id="access-logout" type="button">Cerrar sesión</button>
+      </div>
+      <p class="form-status" id="access-status" role="status" aria-live="polite" tabindex="-1"></p>
+      <noscript><p class="form-status">Activa JavaScript para registrar tu cuenta y verificar el código recibido por correo.</p></noscript>
+      <p class="access-footer">MilpaGrow · Al cuidado de tu cuenta</p>
+    </section>
+  </main>
+</body>
+</html>

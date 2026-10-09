@@ -11,6 +11,8 @@ services:
         sync: false
       - key: MILPAGROW_FIREBASE_PROJECT_ID
         sync: false
+      - key: MILPAGROW_REGISTRATION_API_URL
+        sync: false
       - key: SKIP_INSTALL_DEPS
         value: "true"
     headers:
@@ -26,3 +28,37 @@ services:
       - path: /admin.html
         name: Cache-Control
         value: no-store
+      - path: /acceso.html
+        name: Cache-Control
+        value: no-store
+  - type: web
+    name: milpagrow-web-registration
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci --ignore-scripts
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: MILPAGROW_FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_FROM_EMAIL
+        sync: false
+      - key: BREVO_FROM_NAME
+        value: MilpaGrow
+      - key: WEBSITE_REGISTRATION_SECRET
+        generateValue: true
+      - key: WEBSITE_ALLOWED_ORIGINS
+        sync: false
+      - key: TRUST_PROXY_HOPS
+        value: "1"

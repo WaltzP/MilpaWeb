@@ -6,6 +6,6 @@ export default defineConfig({
   webServer: {
     command: 'python3 scripts/preparar_render.py && python3 -m http.server 4173 --bind 127.0.0.1 --directory build',
     url: 'http://127.0.0.1:4173', reuseExistingServer: false,
-    env: { MILPAGROW_API_URL: 'http://127.0.0.1:3000/api', MILPAGROW_FIREBASE_API_KEY: 'public-test-key', MILPAGROW_FIREBASE_PROJECT_ID: 'demo-milpagrow' },
+    env: { MILPAGROW_API_URL: 'http://127.0.0.1:3000/api', MILPAGROW_FIREBASE_API_KEY: 'public-test-key', MILPAGROW_FIREBASE_PROJECT_ID: 'demo-milpagrow', MILPAGROW_REGISTRATION_API_URL: 'http://127.0.0.1:3001/api/registration' },
   },
 });
